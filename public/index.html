@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polar Builder</title>
+<style>
+  :root {
+    --bg: #0e1420;
+    --panel: #161f30;
+    --text: #e7ecf3;
+    --muted: #8b97ab;
+    --border: #2a3550;
+    --accent: #4da3ff;
+    --live: #ffb454;
+    --layline: #7ee6a8;
+    --grid: #2a3550;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --text: #1a2233;
+      --muted: #5b6577;
+      --border: #dbe1ec;
+      --accent: #1c6fd6;
+      --live: #d9720a;
+      --layline: #1f9d5c;
+      --grid: #e2e7f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 1.5rem;
+  }
+  h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 1.25rem; }
+  .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  .chart-wrap { flex: 1 1 420px; min-width: 300px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; position: relative; }
+  .panel { flex: 0 0 300px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+  .stat { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .stat:last-child { border-bottom: none; }
+  .stat span:first-child { color: var(--muted); }
+  .stat span:last-child { font-weight: 500; }
+  .section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+  .section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  .section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 8px; }
+  .slider-row label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+  input[type=range] { width: 100%; }
+  select, input[type=text], input[type=file] {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  button {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  .row { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+  .row select, .row input[type=text] { flex: 1 1 auto; min-width: 0; }
+  .profile-status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }
+  .checkbox-row input { margin: 0; }
+  .checkbox-row .swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; display: inline-block; }
+  .io-links { display: flex; gap: 14px; font-size: 13px; margin-bottom: 8px; }
+  .io-links a { color: var(--accent); }
+  .radio-row { display: flex; gap: 12px; font-size: 12px; color: var(--muted); margin: 8px 0; }
+  .radio-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .badge { position: absolute; top: 10px; right: 12px; font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--border); color: var(--muted); }
+  .badge.warn { background: #4a2a1a; color: #ffb454; }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 4rem 1rem; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 14px; }
+  .chart-legend { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+  .chart-legend .checklist { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+</style>
+</head>
+<body>
+  <h1>Polar Builder</h1>
+  <p class="sub">Boat speed vs. true wind angle &mdash; recorded wind-speed bands plus the live (damped) curve</p>
+  <div class="layout">
+    <div class="chart-wrap">
+      <span class="badge" id="connBadge">connecting&hellip;</span>
+      <div id="emptyState" class="empty">No polar data recorded yet &mdash; go sailing, or run a test injector.</div>
+      <svg id="chart" viewBox="0 0 600 600" style="width:100%;height:auto;display:none" role="img" aria-label="Polar diagram of boat speed versus true wind angle"></svg>
+      <div class="note" id="clampNote"></div>
+      <div class="chart-legend">
+        <label class="section-label">Wind speed bands</label>
+        <div id="twsChecklist" class="checklist"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="section">
+        <label class="section-label">Profile</label>
+        <select id="profileSelect"></select>
+        <div class="row">
+          <input type="text" id="newProfileName" placeholder="New profile name">
+          <button id="newProfileBtn">+ New</button>
+        </div>
+        <div class="row" id="profileActionsRow">
+          <button id="activateBtn">Set as active</button>
+          <button id="deleteBtn">Delete</button>
+        </div>
+        <div id="deleteConfirmBlock" style="display:none; margin-top:6px">
+          <div class="note" id="deleteConfirmText" style="margin:0 0 6px"></div>
+          <div class="row" style="margin-top:0">
+            <button id="deleteConfirmYes">Yes, delete</button>
+            <button id="deleteConfirmNo">Cancel</button>
+          </div>
+        </div>
+        <div class="profile-status" id="profileStatus"></div>
+      </div>
+
+      <div class="section">
+        <div class="stat"><span>Live TWS</span><span id="liveTws">&ndash;</span></div>
+        <div class="stat"><span>Damped TWS</span><span id="smoothTws">&ndash;</span></div>
+        <div class="stat"><span>Cells recorded</span><span id="cellCount">&ndash;</span></div>
+        <div class="stat"><span>Matrix updated</span><span id="matrixAge">&ndash;</span></div>
+      </div>
+
+      <div class="section">
+        <label class="checkbox-row"><input type="checkbox" id="showLive" checked><span class="swatch" style="background:var(--accent)"></span>Live conditions (damped curve + VMG laylines)</label>
+        <label class="slider-row" style="display:block;margin-top:8px">Damping time constant: <span id="tauLabel">18</span>s</label>
+        <input type="range" id="tauSlider" min="5" max="60" step="1" value="18">
+      </div>
+
+      <div class="section">
+        <label class="section-label">Import / export</label>
+        <div class="io-links">
+          <a id="exportCsv" href="#">Export CSV</a>
+          <a id="exportPol" href="#">Export .pol</a>
+        </div>
+        <input type="file" id="importFile" accept=".csv,.pol,.txt">
+        <div class="radio-row">
+          <label><input type="radio" name="importMode" value="replace" checked>Replace</label>
+          <label><input type="radio" name="importMode" value="merge">Merge</label>
+          <button id="importBtn">Import</button>
+        </div>
+        <div id="importConfirmBlock" style="display:none; margin-top:6px">
+          <div class="note" id="importConfirmText" style="margin:0 0 6px"></div>
+          <div class="row" style="margin-top:0">
+            <button id="importConfirmYes">Yes, import</button>
+            <button id="importConfirmNo">Cancel</button>
+          </div>
+        </div>
+        <div class="note" id="importNote"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var MS_TO_KTS = 1.9438444924574
+  var RAD_TO_DEG = 180 / Math.PI
+  var PROFILES_URL = '/plugins/polar-builder/profiles'
+  var TAU_KEY = 'polarBuilderTau'
+  var TWS_PALETTE = ['#ef4444', '#d946ef', '#8b5cf6', '#6366f1', '#14b8a6', '#eab308', '#f43f5e', '#a3703a']
+
+  var svg = document.getElementById('chart')
+  var emptyState = document.getElementById('emptyState')
+  var connBadge = document.getElementById('connBadge')
+  var clampNote = document.getElementById('clampNote')
+  var liveTwsEl = document.getElementById('liveTws')
+  var smoothTwsEl = document.getElementById('smoothTws')
+  var cellCountEl = document.getElementById('cellCount')
+  var matrixAgeEl = document.getElementById('matrixAge')
+  var tauSlider = document.getElementById('tauSlider')
+  var tauLabel = document.getElementById('tauLabel')
+  var showLiveCheckbox = document.getElementById('showLive')
+  var twsChecklist = document.getElementById('twsChecklist')
+
+  var profileSelect = document.getElementById('profileSelect')
+  var newProfileName = document.getElementById('newProfileName')
+  var newProfileBtn = document.getElementById('newProfileBtn')
+  var activateBtn = document.getElementById('activateBtn')
+  var deleteBtn = document.getElementById('deleteBtn')
+  var deleteConfirmBlock = document.getElementById('deleteConfirmBlock')
+  var deleteConfirmText = document.getElementById('deleteConfirmText')
+  var deleteConfirmYes = document.getElementById('deleteConfirmYes')
+  var deleteConfirmNo = document.getElementById('deleteConfirmNo')
+  var profileStatus = document.getElementById('profileStatus')
+  var exportCsvLink = document.getElementById('exportCsv')
+  var exportPolLink = document.getElementById('exportPol')
+  var importFile = document.getElementById('importFile')
+  var importBtn = document.getElementById('importBtn')
+  var importNote = document.getElementById('importNote')
+  var importConfirmBlock = document.getElementById('importConfirmBlock')
+  var importConfirmText = document.getElementById('importConfirmText')
+  var importConfirmYes = document.getElementById('importConfirmYes')
+  var importConfirmNo = document.getElementById('importConfirmNo')
+
+  var tau = parseFloat(localStorage.getItem(TAU_KEY)) || 18
+  tauSlider.value = tau
+  tauLabel.textContent = tau.toFixed(0)
+  tauSlider.addEventListener('input', function () {
+    tau = parseFloat(tauSlider.value)
+    tauLabel.textContent = tau.toFixed(0)
+    localStorage.setItem(TAU_KEY, String(tau))
+    render()
+  })
+
+  var showLive = true
+  showLiveCheckbox.addEventListener('change', function () {
+    showLive = showLiveCheckbox.checked
+    render()
+  })
+
+  var twsVisibility = {}
+
+  var matrix = null
+  var matrixFetchedAt = 0
+
+  var smoothedTws = null
+  var lastTwsUpdate = 0
+  var liveTws = null
+  var liveTwa = null
+  var liveBsp = null
+
+  function emaUpdate (prev, sample, dtSeconds, tauSeconds) {
+    if (prev == null || dtSeconds <= 0) return sample
+    var alpha = 1 - Math.exp(-dtSeconds / tauSeconds)
+    return prev + alpha * (sample - prev)
+  }
+
+  function fmt (v, dp) {
+    return v == null || !isFinite(v) ? '–' : v.toFixed(dp == null ? 1 : dp)
+  }
+
+  // ---- profiles ----------------------------------------------------------
+
+  var profilesList = []
+  var activeProfileId = null
+  var viewedProfileId = null
+
+  function matrixUrlFor (profileId) {
+    return '/plugins/polar-builder/polar/matrix?profile=' + encodeURIComponent(profileId)
+  }
+
+  function updateExportLinks () {
+    if (!viewedProfileId) return
+    exportCsvLink.href = '/plugins/polar-builder/polar/export?profile=' + encodeURIComponent(viewedProfileId) + '&format=csv'
+    exportPolLink.href = '/plugins/polar-builder/polar/export?profile=' + encodeURIComponent(viewedProfileId) + '&format=pol'
+  }
+
+  function renderProfileSelect () {
+    profileSelect.innerHTML = ''
+    profilesList.forEach(function (p) {
+      var opt = document.createElement('option')
+      opt.value = p.id
+      opt.textContent = p.name + ' (' + p.cellCount + ' cell' + (p.cellCount === 1 ? '' : 's') + ')' + (p.id === activeProfileId ? ' • active' : '')
+      profileSelect.appendChild(opt)
+    })
+    if (viewedProfileId) profileSelect.value = viewedProfileId
+    activateBtn.style.display = viewedProfileId === activeProfileId ? 'none' : 'inline-block'
+    var active = profilesList.filter(function (p) { return p.id === activeProfileId })[0]
+    profileStatus.textContent = active ? ('Recording into: ' + active.name) : ''
+    updateExportLinks()
+  }
+
+  function fetchProfiles () {
+    fetch(PROFILES_URL)
+      .then(function (r) { return r.json() })
+      .then(function (json) {
+        profilesList = json.profiles || []
+        activeProfileId = json.active
+        if (!viewedProfileId || !profilesList.some(function (p) { return p.id === viewedProfileId })) {
+          viewedProfileId = activeProfileId
+        }
+        renderProfileSelect()
+        fetchMatrix()
+      })
+      .catch(function () {})
+  }
+
+  profileSelect.addEventListener('change', function () {
+    viewedProfileId = profileSelect.value
+    twsVisibility = {}
+    deleteConfirmBlock.style.display = 'none'
+    importConfirmBlock.style.display = 'none'
+    pendingImport = null
+    renderProfileSelect()
+    fetchMatrix()
+  })
+
+  newProfileBtn.addEventListener('click', function () {
+    var name = newProfileName.value.trim()
+    if (!name) return
+    fetch(PROFILES_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j } }) })
+      .then(function (res) {
+        if (!res.ok) { profileStatus.textContent = 'Error: ' + (res.body.error || 'could not create profile'); return }
+        newProfileName.value = ''
+        viewedProfileId = res.body.id
+        fetchProfiles()
+      })
+      .catch(function () {})
+  })
+
+  activateBtn.addEventListener('click', function () {
+    if (!viewedProfileId) return
+    fetch(PROFILES_URL + '/' + encodeURIComponent(viewedProfileId) + '/activate', { method: 'POST' })
+      .then(function () { fetchProfiles() })
+      .catch(function () {})
+  })
+
+  // Uses an inline confirm block rather than window.confirm() - native
+  // confirm() dialogs are unreliable (or silently auto-dismissed) inside
+  // some embedded/kiosk webviews, e.g. chartplotter browsers, which made
+  // delete look like it "didn't work".
+  deleteBtn.addEventListener('click', function () {
+    if (!viewedProfileId) return
+    deleteConfirmText.textContent = 'Delete profile "' + viewedProfileId + '"? This cannot be undone.'
+    deleteConfirmBlock.style.display = 'block'
+  })
+
+  deleteConfirmNo.addEventListener('click', function () {
+    deleteConfirmBlock.style.display = 'none'
+  })
+
+  deleteConfirmYes.addEventListener('click', function () {
+    var id = viewedProfileId
+    deleteConfirmBlock.style.display = 'none'
+    if (!id) return
+    fetch(PROFILES_URL + '/' + encodeURIComponent(id), { method: 'DELETE' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j } }) })
+      .then(function (res) {
+        if (!res.ok) { profileStatus.textContent = 'Error: ' + (res.body.error || 'could not delete profile'); return }
+        viewedProfileId = null
+        fetchProfiles()
+      })
+      .catch(function () { profileStatus.textContent = 'Error: delete request failed.' })
+  })
+
+  function performImport (file, mode) {
+    var reader = new FileReader()
+    reader.onload = function () {
+      fetch('/plugins/polar-builder/polar/import?profile=' + encodeURIComponent(viewedProfileId) + '&mode=' + mode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: reader.result
+      })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j } }) })
+        .then(function (res) {
+          if (!res.ok) { importNote.textContent = 'Error: ' + (res.body.error || 'import failed'); return }
+          importNote.textContent = 'Imported ' + res.body.imported + ' points.'
+          importFile.value = ''
+          fetchProfiles()
+        })
+        .catch(function () { importNote.textContent = 'Import failed.' })
+    }
+    reader.readAsText(file)
+  }
+
+  var pendingImport = null
+
+  // Importing into a profile that already has data is destructive (Replace
+  // wipes it, Merge overwrites some of it) - confirm inline first, same
+  // pattern as profile delete. An empty target profile needs no confirmation.
+  importBtn.addEventListener('click', function () {
+    var file = importFile.files && importFile.files[0]
+    if (!file || !viewedProfileId) { importNote.textContent = 'Choose a file first.'; return }
+    var modeInput = document.querySelector('input[name=importMode]:checked')
+    var mode = modeInput ? modeInput.value : 'replace'
+    importNote.textContent = ''
+
+    var target = profilesList.filter(function (p) { return p.id === viewedProfileId })[0]
+    if (target && target.cellCount > 0) {
+      pendingImport = { file: file, mode: mode }
+      importConfirmText.textContent = mode === 'merge'
+        ? ('"' + target.name + '" already has ' + target.cellCount + ' cell' + (target.cellCount === 1 ? '' : 's') + ' - merging will overwrite any of them the imported file also covers. Continue?')
+        : ('"' + target.name + '" already has ' + target.cellCount + ' cell' + (target.cellCount === 1 ? '' : 's') + ' - replacing will erase all of them first. Continue?')
+      importConfirmBlock.style.display = 'block'
+      return
+    }
+    performImport(file, mode)
+  })
+
+  importConfirmNo.addEventListener('click', function () {
+    pendingImport = null
+    importConfirmBlock.style.display = 'none'
+  })
+
+  importConfirmYes.addEventListener('click', function () {
+    importConfirmBlock.style.display = 'none'
+    if (!pendingImport) return
+    performImport(pendingImport.file, pendingImport.mode)
+    pendingImport = null
+  })
+
+  function fetchMatrix () {
+    if (!viewedProfileId) return
+    fetch(matrixUrlFor(viewedProfileId))
+      .then(function (r) { return r.json() })
+      .then(function (m) {
+        matrix = m
+        matrixFetchedAt = Date.now()
+        render()
+      })
+      .catch(function () {})
+  }
+
+  fetchProfiles()
+  setInterval(fetchProfiles, 15000)
+  setInterval(function () {
+    if (matrixFetchedAt) {
+      var secs = Math.round((Date.now() - matrixFetchedAt) / 1000)
+      matrixAgeEl.textContent = secs + 's ago'
+    }
+  }, 1000)
+
+  // ---- websocket -------------------------------------------------------
+
+  var ws = null
+  var reconnectDelay = 1000
+
+  function connect () {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    ws = new WebSocket(proto + '//' + location.host + '/signalk/v1/stream?subscribe=none')
+
+    ws.onopen = function () {
+      connBadge.textContent = 'connected'
+      connBadge.classList.remove('warn')
+      reconnectDelay = 1000
+      ws.send(JSON.stringify({
+        context: 'vessels.self',
+        subscribe: [
+          { path: 'environment.wind.speedTrue', period: 1000 },
+          { path: 'environment.wind.angleTrueWater', period: 1000 },
+          { path: 'navigation.speedThroughWater', period: 1000 }
+        ]
+      }))
+    }
+
+    ws.onmessage = function (ev) {
+      var delta
+      try { delta = JSON.parse(ev.data) } catch (e) { return }
+      var now = Date.now()
+      ;(delta.updates || []).forEach(function (u) {
+        ;(u.values || []).forEach(function (v) {
+          if (v.value === null || v.value === undefined) return
+          if (v.path === 'environment.wind.speedTrue') {
+            var kt = v.value * MS_TO_KTS
+            liveTws = kt
+            var dt = lastTwsUpdate ? (now - lastTwsUpdate) / 1000 : 0
+            smoothedTws = emaUpdate(smoothedTws, kt, dt, tau)
+            lastTwsUpdate = now
+          } else if (v.path === 'environment.wind.angleTrueWater') {
+            liveTwa = v.value * RAD_TO_DEG
+          } else if (v.path === 'navigation.speedThroughWater') {
+            liveBsp = v.value * MS_TO_KTS
+          }
+        })
+      })
+      render()
+    }
+
+    ws.onclose = function () {
+      connBadge.textContent = 'reconnecting…'
+      connBadge.classList.add('warn')
+      setTimeout(connect, reconnectDelay)
+      reconnectDelay = Math.min(reconnectDelay * 2, 10000)
+    }
+
+    ws.onerror = function () { ws.close() }
+  }
+  connect()
+
+  // ---- rendering ---------------------------------------------------------
+
+  var CX = 300, CY = 300, MAXR = 260
+  var NS = 'http://www.w3.org/2000/svg'
+
+  function polarToXY (twaDeg, r) {
+    var rad = (twaDeg * Math.PI) / 180
+    return [CX + r * Math.sin(rad), CY - r * Math.cos(rad)]
+  }
+
+  function el (name, attrs) {
+    var e = document.createElementNS(NS, name)
+    for (var k in attrs) e.setAttribute(k, attrs[k])
+    return e
+  }
+
+  function buildCurve (twsList, rows, twsDamped) {
+    if (!twsList.length) return { points: [], clamped: null }
+    var clamped = null
+    var target = twsDamped
+    if (target < twsList[0]) { clamped = twsList[0]; target = twsList[0] }
+    else if (target > twsList[twsList.length - 1]) { clamped = twsList[twsList.length - 1]; target = twsList[twsList.length - 1] }
+
+    var lo = twsList[0], hi = twsList[twsList.length - 1]
+    for (var i = 0; i < twsList.length; i++) {
+      if (twsList[i] <= target) lo = twsList[i]
+      if (twsList[i] >= target) { hi = twsList[i]; break }
+    }
+    var frac = hi === lo ? 0 : (target - lo) / (hi - lo)
+
+    var points = rows.map(function (row) {
+      var a = row.speeds[lo]
+      var b = row.speeds[hi]
+      if (a === null || a === undefined || b === null || b === undefined) return { twa: row.twa, bsp: null }
+      return { twa: row.twa, bsp: a + (b - a) * frac }
+    })
+    return { points: points, clamped: clamped }
+  }
+
+  function vmgScore (twa, bsp, upwind) {
+    var rad = (twa * Math.PI) / 180
+    return upwind ? bsp * Math.cos(rad) : -bsp * Math.cos(rad)
+  }
+
+  function bestVmgPoint (points, loAngle, hiAngle, upwind) {
+    var best = null
+    var bestScore = -Infinity
+    points.forEach(function (p) {
+      if (p.bsp == null || p.twa < loAngle || p.twa > hiAngle) return
+      var score = vmgScore(p.twa, p.bsp, upwind)
+      if (score > bestScore) { bestScore = score; best = p }
+    })
+    return best
+  }
+
+  function drawLayline (twa, bsp, maxBsp) {
+    var r = (bsp / maxBsp) * MAXR
+    var rr = Math.min(r * 1.1, MAXR + 18)
+    var xy = polarToXY(twa, rr)
+    svg.appendChild(el('line', { x1: CX, y1: CY, x2: xy[0], y2: xy[1], stroke: 'var(--layline)', 'stroke-width': 1.5, 'stroke-dasharray': '5,4' }))
+    var label = el('text', { x: xy[0], y: xy[1], fill: 'var(--layline)', 'font-size': 11, 'text-anchor': xy[0] >= CX ? 'start' : 'end' })
+    label.textContent = Math.round(twa) + '° ' + fmt(bsp, 1) + 'kt'
+    svg.appendChild(label)
+  }
+
+  function appendCurve (points, maxBsp, style) {
+    if (!points.length) return
+    var d = ''
+    var started = false
+    points
+      .slice()
+      .sort(function (a, b) { return a.twa - b.twa })
+      .forEach(function (p) {
+        if (p.bsp == null) { started = false; return }
+        var r = (p.bsp / maxBsp) * MAXR
+        var xy = polarToXY(p.twa, r)
+        d += (started ? ' L ' : ' M ') + xy[0].toFixed(1) + ' ' + xy[1].toFixed(1)
+        started = true
+      })
+    if (!d) return
+    var path = el('path', { d: d.trim(), fill: 'none', stroke: style.stroke, 'stroke-width': style.strokeWidth || 2, 'stroke-linejoin': 'round' })
+    if (style.opacity) path.setAttribute('opacity', style.opacity)
+    svg.appendChild(path)
+  }
+
+  function renderTwsChecklist () {
+    while (twsChecklist.firstChild) twsChecklist.removeChild(twsChecklist.firstChild)
+    if (!matrix || !matrix.tws) return
+    matrix.tws.forEach(function (twsVal, idx) {
+      if (!(twsVal in twsVisibility)) twsVisibility[twsVal] = true
+      var color = TWS_PALETTE[idx % TWS_PALETTE.length]
+      var row = document.createElement('label')
+      row.className = 'checkbox-row'
+      row.style.opacity = twsVisibility[twsVal] !== false ? '1' : '0.4'
+      var cb = document.createElement('input')
+      cb.type = 'checkbox'
+      cb.checked = twsVisibility[twsVal] !== false
+      cb.addEventListener('change', function () {
+        twsVisibility[twsVal] = cb.checked
+        render()
+      })
+      var sw = document.createElement('span')
+      sw.className = 'swatch'
+      sw.style.background = color
+      var label = document.createElement('span')
+      label.textContent = twsVal + ' kt'
+      row.appendChild(cb)
+      row.appendChild(sw)
+      row.appendChild(label)
+      twsChecklist.appendChild(row)
+    })
+  }
+
+  function render () {
+    while (svg.firstChild) svg.removeChild(svg.firstChild)
+    renderTwsChecklist()
+
+    if (!matrix || !matrix.tws || !matrix.tws.length) {
+      emptyState.style.display = 'block'
+      svg.style.display = 'none'
+      clampNote.textContent = ''
+      cellCountEl.textContent = '0'
+      liveTwsEl.textContent = liveTws == null ? '–' : fmt(liveTws) + ' kt'
+      smoothTwsEl.textContent = smoothedTws == null ? '–' : fmt(smoothedTws) + ' kt'
+      return
+    }
+    emptyState.style.display = 'none'
+    svg.style.display = 'block'
+
+    var cellCount = 0
+    matrix.rows.forEach(function (r) {
+      Object.keys(r.speeds).forEach(function (k) { if (r.speeds[k] !== null) cellCount++ })
+    })
+    cellCountEl.textContent = String(cellCount)
+    liveTwsEl.textContent = liveTws == null ? '–' : fmt(liveTws) + ' kt'
+    smoothTwsEl.textContent = smoothedTws == null ? '–' : fmt(smoothedTws) + ' kt'
+
+    var maxBsp = 4
+    matrix.rows.forEach(function (r) {
+      Object.keys(r.speeds).forEach(function (k) {
+        var v = r.speeds[k]
+        if (v != null && v > maxBsp) maxBsp = v
+      })
+    })
+    maxBsp = maxBsp * 1.1
+
+    var signed = matrix.twa.some(function (t) { return t < 0 })
+    var spokeAngles = signed
+      ? [-180, -150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180]
+      : [0, 30, 60, 90, 120, 150, 180]
+
+    var ringCount = 4
+    for (var i = 1; i <= ringCount; i++) {
+      var bsp = (maxBsp / ringCount) * i
+      var r = (bsp / maxBsp) * MAXR
+      svg.appendChild(el('circle', { cx: CX, cy: CY, r: r, fill: 'none', stroke: 'var(--grid)', 'stroke-width': 1 }))
+      var lxy = polarToXY(0, r)
+      var label = el('text', { x: lxy[0] + 6, y: lxy[1] - 4, fill: 'var(--muted)', 'font-size': 11 })
+      label.textContent = fmt(bsp, 1)
+      svg.appendChild(label)
+    }
+    svg.appendChild(el('circle', { cx: CX, cy: CY, r: MAXR, fill: 'none', stroke: 'var(--border)', 'stroke-width': 1.5 }))
+
+    spokeAngles.forEach(function (a) {
+      var xy = polarToXY(a, MAXR)
+      svg.appendChild(el('line', { x1: CX, y1: CY, x2: xy[0], y2: xy[1], stroke: 'var(--grid)', 'stroke-width': 1 }))
+      var lxy2 = polarToXY(a, MAXR + 16)
+      var label = el('text', { x: lxy2[0], y: lxy2[1], fill: 'var(--muted)', 'font-size': 11, 'text-anchor': 'middle' })
+      label.textContent = Math.round(a) + '°'
+      svg.appendChild(label)
+    })
+
+    // ---- raw per-TWS bands (this is the "show the TWS" / multi wind
+    // speed view - each checked band is its own exact, non-interpolated
+    // curve, labeled with its TWS value). Deselecting a band hides its
+    // curve completely; among the bands left checked, the one closest to
+    // the current damped TWS is drawn at full strength and the rest are
+    // partially faded, so the chart reads as "here's roughly where you
+    // are" rather than a flat pile of equally-weighted lines. -----------
+    var refTws = smoothedTws != null ? smoothedTws : liveTws
+    var checkedTws = matrix.tws.filter(function (t) { return twsVisibility[t] !== false })
+    var nearestTws = null
+    if (refTws != null && checkedTws.length) {
+      nearestTws = checkedTws.reduce(function (best, t) {
+        return (best == null || Math.abs(t - refTws) < Math.abs(best - refTws)) ? t : best
+      }, null)
+    }
+
+    matrix.tws.forEach(function (twsVal, idx) {
+      var active = twsVisibility[twsVal] !== false
+      if (!active) return
+
+      var isNearest = nearestTws == null || twsVal === nearestTws
+      var color = TWS_PALETTE[idx % TWS_PALETTE.length]
+      var raw = matrix.rows.map(function (row) { return { twa: row.twa, bsp: row.speeds[twsVal] } })
+
+      if (!signed && isNearest) {
+        var mirroredRaw = raw.map(function (p) { return { twa: -p.twa, bsp: p.bsp } })
+        appendCurve(mirroredRaw, maxBsp, { stroke: color, opacity: 0.25, strokeWidth: 1.5 })
+      }
+      appendCurve(raw, maxBsp, isNearest
+        ? { stroke: color, strokeWidth: 1.5 }
+        : { stroke: color, strokeWidth: 1.5, opacity: 0.35 })
+
+      // Skip the on-curve label for faded (non-nearest) bands to keep
+      // things legible - the legend row below the chart still names them.
+      if (isNearest) {
+        var last = null
+        raw.forEach(function (p) { if (p.bsp != null) last = p })
+        if (last) {
+          var xy = polarToXY(last.twa, (last.bsp / maxBsp) * MAXR)
+          var lab = el('text', { x: xy[0] + 4, y: xy[1] - 4, fill: color, 'font-size': 11 })
+          lab.textContent = twsVal + 'kt'
+          svg.appendChild(lab)
+        }
+      }
+    })
+
+    // ---- live/damped layer (current conditions) ------------------------
+    if (showLive) {
+      var twsDamped = smoothedTws != null ? smoothedTws : matrix.tws[0]
+      var result = buildCurve(matrix.tws, matrix.rows, twsDamped)
+      var points = result.points
+      var clamped = result.clamped
+      clampNote.textContent = clamped != null
+        ? ('TWS clamped to ' + fmt(clamped, 0) + 'kt (outside recorded range)')
+        : ''
+
+      if (!signed) {
+        var mirrored = points.map(function (p) { return { twa: -p.twa, bsp: p.bsp } })
+        appendCurve(mirrored, maxBsp, { stroke: 'var(--accent)', opacity: 0.25, strokeWidth: 2 })
+      }
+      appendCurve(points, maxBsp, { stroke: 'var(--accent)', strokeWidth: 2 })
+
+      var vmgPoints = []
+      if (signed) {
+        vmgPoints.push(bestVmgPoint(points, 0, 90, true))
+        vmgPoints.push(bestVmgPoint(points, 90, 180, false))
+        vmgPoints.push(bestVmgPoint(points, -90, 0, true))
+        vmgPoints.push(bestVmgPoint(points, -180, -90, false))
+      } else {
+        var up = bestVmgPoint(points, 0, 90, true)
+        var down = bestVmgPoint(points, 90, 180, false)
+        if (up) { vmgPoints.push(up); vmgPoints.push({ twa: -up.twa, bsp: up.bsp }) }
+        if (down) { vmgPoints.push(down); vmgPoints.push({ twa: -down.twa, bsp: down.bsp }) }
+      }
+      vmgPoints.forEach(function (p) { if (p) drawLayline(p.twa, p.bsp, maxBsp) })
+
+      if (liveTwa != null && liveBsp != null) {
+        var rLive = Math.min(liveBsp / maxBsp, 1.05) * MAXR
+        var pxy = polarToXY(liveTwa, rLive)
+        svg.appendChild(el('circle', { cx: pxy[0], cy: pxy[1], r: 6, fill: 'var(--live)', stroke: 'var(--panel)', 'stroke-width': 2 }))
+      }
+    } else {
+      clampNote.textContent = ''
+    }
+  }
+})()
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.DS_Store
+.claude/
+
+# plugin runtime data (created inside a real Signal K data dir, not this repo,
+# but ignore just in case someone runs it locally with a relative data dir)
+data/
+*.tmp

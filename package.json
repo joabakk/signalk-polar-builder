@@ -1,0 +1,30 @@
+{
+  "name": "signalk-polar-builder",
+  "version": "1.0.0",
+  "description": "Self-expanding polar diagram builder for Signal K. Passively observes wind/speed data, detects steady-state sailing conditions, and accumulates a boat-speed-vs-TWS/TWA polar table over time.",
+  "main": "index.js",
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-webapp",
+    "signalk-category-navigation",
+    "polar",
+    "vpp",
+    "sailing"
+  ],
+  "signalk": {
+    "displayName": "Polar Builder"
+  },
+  "author": "Joachim Bakke",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joabakk/signalk-polar-builder.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "signalk-server": "^2.31.1"
+  }
+}
