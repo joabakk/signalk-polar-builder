@@ -69,6 +69,8 @@ All of this is exposed as plugin config in the Signal K admin UI:
 | `samplesPerCell` | 50 | Rolling sample buffer size per cell |
 | `percentile` | 90 | Percentile used for the reported polar speed |
 | `persistIntervalSeconds` | 30 | How often the table is saved to disk |
+| `publishPerformanceData` | `true` | Publish live `performance.*` Signal K deltas (see below) |
+| `performanceDampingSeconds` | 15 | Server-side TWS damping for published performance data — separate from the webapp's own slider |
 
 Tighten the std-dev thresholds if you want a "purer" polar (fewer, more
 reliable points); loosen them if your instruments are noisy and you're
@@ -102,6 +104,9 @@ Once installed and started, the plugin exposes:
 - `GET /plugins/polar-builder/polar/status` — current stability state,
   active profile, engine state per instance, and cell count, useful for a
   debug widget
+- `GET /plugins/polar-builder/inputs` — every subscribed path with its
+  required/active state and current value, backing the webapp's Inputs
+  panel
 - `POST /plugins/polar-builder/polar/reset` — wipes the table and
   starts learning again
 
@@ -110,7 +115,59 @@ endpoints accept an optional `?profile=<id>` to target a specific profile
 instead of the active one (e.g. to export or view a profile without
 switching what's currently recording).
 
+## Performance data
+
+Beyond its own REST API, the plugin actively publishes standard Signal K
+`performance.*` deltas onto the bus, so any generic Signal K consumer —
+instrument gauges, chart plotters, or the `sk-to-nmea0183`/`sk-to-nmea2000`
+gateway plugins if you run one — can display them with no knowledge of
+this plugin specifically. No NMEA-specific code lives here; publishing the
+standard path is what lets those gateway plugins pick it up for free.
+
+| Path | Meaning |
+|---|---|
+| `performance.velocityMadeGood` | Current VMG from raw BSP/TWA. Positive = upwind, negative = downwind. |
+| `performance.polarSpeed` / `.polarSpeedRatio` | Polar-table speed at the current TWS/TWA, and actual-speed-vs-polar ratio. |
+| `performance.beatAngle` / `.beatAngleVelocityMadeGood` / `.beatAngleTargetSpeed` | Best-VMG **upwind** angle for the current TWS, its VMG, and — the upwind target speed. |
+| `performance.gybeAngle` / `.gybeAngleVelocityMadeGood` / `.gybeAngleTargetSpeed` | Same, **downwind** — the downwind target speed. |
+| `performance.targetSpeed` / `.targetAngle` | Whichever of beat/gybe currently applies — the single target-speed value for a simple gauge. |
+| `performance.tackTrue` / `.tackMagnetic` | Heading on the opposite tack right now (`heading + 2×TWA`), published whenever `navigation.headingTrue`/`headingMagnetic` is available on the bus — independent of the polar table. |
+
+All polar-derived paths (everything except `velocityMadeGood` and the tack
+headings) need at least one recorded cell in the **active** profile;
+nothing is published for a path that isn't computable yet — Signal K
+convention is to omit an unknown value, not send a placeholder. The TWS
+used to pick a polar-table column is smoothed with its own server-side
+`performanceDampingSeconds` EMA (default 15s) so gauges don't jump every
+gust — a separate control from the webapp's own damping slider, since one
+drives a live bus feed and the other a chart. Values keep publishing while
+motoring or outside a stability window (the engine/stability gate only
+protects what gets *recorded* into the table, not what gets *reported* as
+current performance). Set `publishPerformanceData` to `false` if you're
+already running another performance-data source (e.g.
+`signalk-derived-data`) and want to rely on Signal K's source-priority
+instead.
+
+`navigation.attitude` (heel) is subscribed to and captured for possible
+future use, but `performance.leeway` isn't published yet — the standard
+`k × heel / speed²` approximation needs a boat-specific calibration
+constant this plugin has no principled way to default, and an unverified
+sign convention there could actively mislead rather than just be absent.
+
 ## Webapp
+
+The **Inputs** panel lists every Signal K path this plugin subscribes to —
+boat speed, true wind speed/angle, rate of turn, heading (true/magnetic),
+heel/attitude, and each detected engine instance — with a status dot (green
+= data flowing, red = required but missing, gray = optional and not
+present) plus the live value once available. Boat speed, true wind speed,
+and true wind angle are marked required (`*`) since nothing gets recorded
+or published without them; everything else just enables one specific
+enhancement (engine detection, tack heading, etc.) and the plugin works
+fine without it. Backed by `GET /plugins/polar-builder/inputs`, polled
+every few seconds — useful for spotting a wiring/config problem (wrong
+`speedSource`, an instrument not actually reporting) at a glance instead of
+wondering why the table stays empty.
 
 Once installed and enabled, open `http://<your-server>/signalk-polar-builder/`
 for a live view: the learned boat-speed-vs-TWA curve, interpolated for the
@@ -258,6 +315,15 @@ when you're done testing and ready to go sailing for real.
    isolated from each other, round-trips an export back through import,
    and cleans up after itself.
 
+10. **To check the published `performance.*` deltas**, run
+    `node test/inject-performance-check.js` — seeds a temporary `perf-test`
+    profile via import (fast, no waiting through the stability gate),
+    subscribes to `performance.*` on the same websocket it injects data
+    over, and asserts `beatAngleTargetSpeed`/`gybeAngleTargetSpeed` both
+    appear and differ, `velocityMadeGood`'s sign flips between an upwind
+    and downwind heading, and `tackTrue` matches the expected
+    `heading + 2×TWA` formula.
+
 ## Notes / things you may want to extend
 
 - Engine detection relies on `propulsion.*.state` and/or
@@ -267,9 +333,12 @@ when you're done testing and ready to go sailing for real.
   the plugin has no way to know the engine is running and won't filter
   motoring data — the REST `/polar/status` endpoint always reports
   what it's currently seeing per engine instance so you can check this.
-- Heel angle, current, and sea state aren't accounted for — all of
-  those affect boat speed and could be added as extra stability/bucket
-  dimensions if you have the data.
+- Heel angle is subscribed to (`navigation.attitude`) but not yet used —
+  see [Performance data](#performance-data) for why `performance.leeway`
+  isn't published. Current and sea state aren't accounted for at all —
+  all of these affect boat speed and could be added as extra
+  stability/bucket dimensions, or a leeway calc with a calibrated
+  constant, if you have the data and want to extend this.
 - The percentile-based cell value is intentionally conservative to
   reduce the effect of poor helming; the raw `avgBsp` and `maxBsp` are
   also stored per cell if you'd rather use those.

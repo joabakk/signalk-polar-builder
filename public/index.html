@@ -15,6 +15,8 @@
     --live: #ffb454;
     --layline: #7ee6a8;
     --grid: #2a3550;
+    --status-ok: #3ecf6e;
+    --status-warn: #e2574c;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -27,6 +29,8 @@
       --live: #d9720a;
       --layline: #1f9d5c;
       --grid: #e2e7f0;
+      --status-ok: #1a9e4c;
+      --status-warn: #c8392f;
     }
   }
   * { box-sizing: border-box; }
@@ -39,7 +43,9 @@
   }
   h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
   .sub { color: var(--muted); font-size: 13px; margin: 0 0 1.25rem; }
+  .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
   .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  .panel.hidden { display: none; }
   .chart-wrap { flex: 1 1 420px; min-width: 300px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; position: relative; }
   .panel { flex: 0 0 300px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
   .stat { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -76,23 +82,47 @@
   .note { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 14px; }
   .chart-legend { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
   .chart-legend .checklist { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+  .legend-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .legend-header button { font-size: 11px; padding: 3px 8px; }
+  .damped-readout { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .damped-readout span { color: var(--accent); font-weight: 500; }
+  .input-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
+  .input-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .input-label { flex: 1 1 auto; min-width: 0; }
+  .input-path { display: block; font-size: 11px; color: var(--muted); }
+  .input-value { font-size: 12px; color: var(--muted); white-space: nowrap; }
 </style>
 </head>
 <body>
-  <h1>Polar Builder</h1>
-  <p class="sub">Boat speed vs. true wind angle &mdash; recorded wind-speed bands plus the live (damped) curve</p>
+  <div class="page-header">
+    <div>
+      <h1>Polar Builder</h1>
+      <p class="sub">Boat speed vs. true wind angle &mdash; recorded wind-speed bands plus the live (damped) curve</p>
+    </div>
+    <button id="togglePanelBtn">Hide panel</button>
+  </div>
   <div class="layout">
     <div class="chart-wrap">
       <span class="badge" id="connBadge">connecting&hellip;</span>
+      <div class="damped-readout">Damped TWS <span id="dampedTwsReadout">&ndash;</span></div>
       <div id="emptyState" class="empty">No polar data recorded yet &mdash; go sailing, or run a test injector.</div>
       <svg id="chart" viewBox="0 0 600 600" style="width:100%;height:auto;display:none" role="img" aria-label="Polar diagram of boat speed versus true wind angle"></svg>
       <div class="note" id="clampNote"></div>
       <div class="chart-legend">
-        <label class="section-label">Wind speed bands</label>
+        <div class="legend-header">
+          <label class="section-label" style="margin-bottom:0">Wind speed bands</label>
+          <button id="toggleBandsBtn">Hide all</button>
+        </div>
         <div id="twsChecklist" class="checklist"></div>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel">
+      <div class="section">
+        <label class="section-label">Inputs</label>
+        <div id="inputsList"></div>
+        <div class="note">* required &mdash; without these, nothing is recorded or published</div>
+      </div>
+
       <div class="section">
         <label class="section-label">Profile</label>
         <select id="profileSelect"></select>
@@ -157,8 +187,11 @@
   var RAD_TO_DEG = 180 / Math.PI
   var PROFILES_URL = '/plugins/polar-builder/profiles'
   var TAU_KEY = 'polarBuilderTau'
+  var PANEL_HIDDEN_KEY = 'polarBuilderPanelHidden'
   var TWS_PALETTE = ['#ef4444', '#d946ef', '#8b5cf6', '#6366f1', '#14b8a6', '#eab308', '#f43f5e', '#a3703a']
 
+  var panel = document.getElementById('panel')
+  var togglePanelBtn = document.getElementById('togglePanelBtn')
   var svg = document.getElementById('chart')
   var emptyState = document.getElementById('emptyState')
   var connBadge = document.getElementById('connBadge')
@@ -171,6 +204,9 @@
   var tauLabel = document.getElementById('tauLabel')
   var showLiveCheckbox = document.getElementById('showLive')
   var twsChecklist = document.getElementById('twsChecklist')
+  var dampedTwsReadout = document.getElementById('dampedTwsReadout')
+  var toggleBandsBtn = document.getElementById('toggleBandsBtn')
+  var inputsList = document.getElementById('inputsList')
 
   var profileSelect = document.getElementById('profileSelect')
   var newProfileName = document.getElementById('newProfileName')
@@ -202,6 +238,18 @@
     render()
   })
 
+  // Lets the chart (with the damped TWS readout) stand alone, full-width,
+  // with Inputs/Profile/stats/Import-export all out of the way.
+  function setPanelHidden (hidden) {
+    panel.classList.toggle('hidden', hidden)
+    togglePanelBtn.textContent = hidden ? 'Show panel' : 'Hide panel'
+    localStorage.setItem(PANEL_HIDDEN_KEY, hidden ? '1' : '0')
+  }
+  setPanelHidden(localStorage.getItem(PANEL_HIDDEN_KEY) === '1')
+  togglePanelBtn.addEventListener('click', function () {
+    setPanelHidden(!panel.classList.contains('hidden'))
+  })
+
   var showLive = true
   showLiveCheckbox.addEventListener('change', function () {
     showLive = showLiveCheckbox.checked
@@ -209,6 +257,13 @@
   })
 
   var twsVisibility = {}
+
+  toggleBandsBtn.addEventListener('click', function () {
+    if (!matrix || !matrix.tws) return
+    var allHidden = matrix.tws.every(function (t) { return twsVisibility[t] === false })
+    matrix.tws.forEach(function (t) { twsVisibility[t] = allHidden })
+    render()
+  })
 
   var matrix = null
   var matrixFetchedAt = 0
@@ -406,8 +461,48 @@
       .catch(function () {})
   }
 
+  function renderInputs (inputs) {
+    inputsList.innerHTML = ''
+    inputs.forEach(function (inp) {
+      var row = document.createElement('div')
+      row.className = 'input-row'
+
+      var dot = document.createElement('span')
+      dot.className = 'input-dot'
+      dot.style.background = inp.active ? 'var(--status-ok)' : (inp.required ? 'var(--status-warn)' : 'var(--muted)')
+
+      var label = document.createElement('span')
+      label.className = 'input-label'
+      var name = document.createElement('span')
+      name.textContent = inp.label + (inp.required ? ' *' : '')
+      label.appendChild(name)
+      var path = document.createElement('span')
+      path.className = 'input-path'
+      path.textContent = inp.path
+      label.appendChild(path)
+
+      var value = document.createElement('span')
+      value.className = 'input-value'
+      value.textContent = inp.active && inp.display ? inp.display : (inp.active ? '' : 'no data')
+
+      row.appendChild(dot)
+      row.appendChild(label)
+      row.appendChild(value)
+      inputsList.appendChild(row)
+    })
+  }
+
+  function fetchInputs () {
+    fetch('/plugins/polar-builder/inputs')
+      .then(function (r) { return r.json() })
+      .then(function (json) { renderInputs(json.inputs || []) })
+      .catch(function () {})
+  }
+
   fetchProfiles()
   setInterval(fetchProfiles, 15000)
+  fetchInputs()
+  setInterval(fetchInputs, 3000)
   setInterval(function () {
     if (matrixFetchedAt) {
       var secs = Math.round((Date.now() - matrixFetchedAt) / 1000)
@@ -559,7 +654,13 @@
 
   function renderTwsChecklist () {
     while (twsChecklist.firstChild) twsChecklist.removeChild(twsChecklist.firstChild)
-    if (!matrix || !matrix.tws) return
+    if (!matrix || !matrix.tws || !matrix.tws.length) {
+      toggleBandsBtn.style.display = 'none'
+      return
+    }
+    toggleBandsBtn.style.display = 'inline-block'
+    var allHidden = matrix.tws.every(function (t) { return twsVisibility[t] === false })
+    toggleBandsBtn.textContent = allHidden ? 'Show all' : 'Hide all'
     matrix.tws.forEach(function (twsVal, idx) {
       if (!(twsVal in twsVisibility)) twsVisibility[twsVal] = true
       var color = TWS_PALETTE[idx % TWS_PALETTE.length]
@@ -596,6 +697,7 @@
       cellCountEl.textContent = '0'
       liveTwsEl.textContent = liveTws == null ? '–' : fmt(liveTws) + ' kt'
       smoothTwsEl.textContent = smoothedTws == null ? '–' : fmt(smoothedTws) + ' kt'
+      dampedTwsReadout.textContent = smoothedTws == null ? '–' : fmt(smoothedTws) + ' kt'
       return
     }
     emptyState.style.display = 'none'
@@ -608,6 +710,7 @@
     cellCountEl.textContent = String(cellCount)
     liveTwsEl.textContent = liveTws == null ? '–' : fmt(liveTws) + ' kt'
     smoothTwsEl.textContent = smoothedTws == null ? '–' : fmt(smoothedTws) + ' kt'
+    dampedTwsReadout.textContent = smoothedTws == null ? '–' : fmt(smoothedTws) + ' kt'
 
     var maxBsp = 4
     matrix.rows.forEach(function (r) {
@@ -668,13 +771,19 @@
       var color = TWS_PALETTE[idx % TWS_PALETTE.length]
       var raw = matrix.rows.map(function (row) { return { twa: row.twa, bsp: row.speeds[twsVal] } })
 
-      if (!signed && isNearest) {
-        var mirroredRaw = raw.map(function (p) { return { twa: -p.twa, bsp: p.bsp } })
-        appendCurve(mirroredRaw, maxBsp, { stroke: color, opacity: 0.25, strokeWidth: 1.5 })
-      }
-      appendCurve(raw, maxBsp, isNearest
+      // Mirror to port for every checked band, not just the nearest one -
+      // it's the same folded (port/starboard-symmetric) data reflected, so
+      // both sides show the same set of bands at the same opacity (port
+      // is not "less trustworthy" than starboard, it's the same
+      // measurement assumed symmetric).
+      var curveStyle = isNearest
         ? { stroke: color, strokeWidth: 1.5 }
-        : { stroke: color, strokeWidth: 1.5, opacity: 0.35 })
+        : { stroke: color, strokeWidth: 1.5, opacity: 0.35 }
+      if (!signed) {
+        var mirroredRaw = raw.map(function (p) { return { twa: -p.twa, bsp: p.bsp } })
+        appendCurve(mirroredRaw, maxBsp, curveStyle)
+      }
+      appendCurve(raw, maxBsp, curveStyle)
 
       // Skip the on-curve label for faded (non-nearest) bands to keep
       // things legible - the legend row below the chart still names them.
@@ -702,7 +811,7 @@
 
       if (!signed) {
         var mirrored = points.map(function (p) { return { twa: -p.twa, bsp: p.bsp } })
-        appendCurve(mirrored, maxBsp, { stroke: 'var(--accent)', opacity: 0.25, strokeWidth: 2 })
+        appendCurve(mirrored, maxBsp, { stroke: 'var(--accent)', strokeWidth: 2 })
       }
       appendCurve(points, maxBsp, { stroke: 'var(--accent)', strokeWidth: 2 })
 
