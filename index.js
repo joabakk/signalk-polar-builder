@@ -82,7 +82,7 @@ module.exports = function (app) {
   // no changes to work against whichever profile is currently active.
   function makeProfile (name) {
     const now = Date.now()
-    return { name, cells: new Map(), createdAt: now, lastUpdated: now }
+    return { name, cells: new Map(), createdAt: now, lastUpdated: now, sailConfig: null }
   }
   let profiles = { default: makeProfile('default') }
   let activeProfileId = 'default'
@@ -247,6 +247,64 @@ module.exports = function (app) {
     engines[instance].lastUpdate = now
     recomputeEngineRunning()
     return true
+  }
+
+  // ---- sail configuration --------------------------------------------
+  //
+  // Sail state, keyed by sails.inventory instance id (e.g. "main", "j1"),
+  // mirroring the `engines` pattern above. Requires a boat that actually
+  // publishes sails.inventory.* (per the Signal K "sails" schema group) -
+  // most don't yet, so this degrades to "no data" gracefully like every
+  // other optional input.
+
+  let sails = {}
+  let lastSailConfigLabel = null
+
+  function updateSailFromPath (path, value, now) {
+    const parts = path.split('.')
+    if (parts.length < 4 || parts[0] !== 'sails' || parts[1] !== 'inventory') return false
+    const instance = parts[2]
+    const field = parts[parts.length - 1]
+    if (field !== 'active' && field !== 'name' && field !== 'type' && field !== 'reducedState') return false
+
+    if (!sails[instance]) sails[instance] = {}
+    sails[instance][field] = value
+    sails[instance].lastUpdate = now
+    return true
+  }
+
+  // A stable, human-readable signature of which sails are currently up,
+  // e.g. "J1+Main" or "Genaker+Main(reef1)" - null if nothing is active/
+  // known. Sorted so delta arrival order never changes the label.
+  function computeSailConfigLabel () {
+    const activeIds = Object.keys(sails).filter((id) => sails[id] && sails[id].active === true)
+    if (!activeIds.length) return null
+    const parts = activeIds.map((id) => {
+      const s = sails[id]
+      let label = s.name || s.type || id
+      if (s.reducedState && s.reducedState.reduced && s.reducedState.reefs) {
+        label += `(reef${s.reducedState.reefs})`
+      }
+      return label
+    })
+    parts.sort()
+    return parts.join('+')
+  }
+
+  // If the live sail configuration just changed and auto-switching is on,
+  // jump to whichever EXISTING profile is tagged with that exact label -
+  // never auto-creates a profile, so a moment of transitional/unknown
+  // sail state can't spawn junk profiles.
+  function maybeAutoSwitchSailConfig () {
+    const label = computeSailConfigLabel()
+    if (label === lastSailConfigLabel) return
+    lastSailConfigLabel = label
+    if (!options.autoSwitchBySailConfig || !label) return
+    const match = Object.keys(profiles).find((id) => profiles[id].sailConfig === label)
+    if (match && match !== activeProfileId) {
+      activateProfile(match)
+      app.debug(`polar-builder: auto-switched to profile '${match}' for sail config '${label}'`)
+    }
   }
 
   // ---- polar cell storage ----------------------------------------------
@@ -555,6 +613,40 @@ module.exports = function (app) {
       })
     }
 
+    const sailIds = Object.keys(sails)
+    if (!sailIds.length) {
+      inputs.push({
+        id: 'sails',
+        label: 'Sails (sails.inventory.*)',
+        path: 'sails.inventory.*.active',
+        required: false,
+        active: false,
+        display: null
+      })
+    } else {
+      sailIds.forEach((id) => {
+        const s = sails[id]
+        let display = null
+        if (s.active === true) {
+          display = 'up' + (s.reducedState && s.reducedState.reduced && s.reducedState.reefs ? ` (reef${s.reducedState.reefs})` : '')
+        } else if (s.active === false) {
+          display = 'down'
+        }
+        // Not gated by isFresh() like the rows above - sail state is a
+        // discrete status many implementations only publish on change,
+        // not periodically, so "active" here means "we have a known
+        // reading" rather than "updated in the last 10s".
+        inputs.push({
+          id: `sail:${id}`,
+          label: `Sail: ${s.name || id}`,
+          path: `sails.inventory.${id}.active`,
+          required: false,
+          active: typeof s.active === 'boolean',
+          display
+        })
+      })
+    }
+
     return inputs
   }
 
@@ -573,7 +665,8 @@ module.exports = function (app) {
               name: p.name || id,
               cells: new Map(p.cells || []),
               createdAt: p.createdAt || Date.now(),
-              lastUpdated: p.lastUpdated || Date.now()
+              lastUpdated: p.lastUpdated || Date.now(),
+              sailConfig: p.sailConfig || null
             }
           })
           activeProfileId = profiles[parsed.activeProfile] ? parsed.activeProfile : Object.keys(profiles)[0]
@@ -620,6 +713,7 @@ module.exports = function (app) {
           name: p.name,
           createdAt: p.createdAt,
           lastUpdated: p.lastUpdated,
+          sailConfig: p.sailConfig || null,
           cells: Array.from(p.cells.entries())
         }
       })
@@ -903,6 +997,11 @@ module.exports = function (app) {
         type: 'number',
         title: 'Damping time constant (seconds) for the TWS used to look up published performance data - separate from the webapp\'s own damping slider',
         default: 15
+      },
+      autoSwitchBySailConfig: {
+        type: 'boolean',
+        title: 'Automatically activate a profile when its tagged sail configuration (sails.inventory.*) matches what\'s currently up - only switches among profiles you\'ve explicitly tagged, never creates one',
+        default: false
       }
     }
   }
@@ -929,7 +1028,8 @@ module.exports = function (app) {
         percentile: 90,
         persistIntervalSeconds: 30,
         publishPerformanceData: true,
-        performanceDampingSeconds: 15
+        performanceDampingSeconds: 15,
+        autoSwitchBySailConfig: false
       },
       opts || {}
     )
@@ -954,7 +1054,11 @@ module.exports = function (app) {
         // possible future use (see README - leeway isn't computed yet).
         { path: 'navigation.headingTrue', period: 1000 },
         { path: 'navigation.headingMagnetic', period: 1000 },
-        { path: 'navigation.attitude', period: 1000 }
+        { path: 'navigation.attitude', period: 1000 },
+        { path: 'sails.inventory.*.active', period: 1000 },
+        { path: 'sails.inventory.*.name', period: 1000 },
+        { path: 'sails.inventory.*.type', period: 1000 },
+        { path: 'sails.inventory.*.reducedState', period: 1000 }
       ]
     }
 
@@ -970,6 +1074,9 @@ module.exports = function (app) {
 
             if (updateEngineFromPath(v.path, v.value, now)) {
               // handled - propulsion.* path
+            } else if (updateSailFromPath(v.path, v.value, now)) {
+              // handled - sails.inventory.* path; check for an auto-switch opportunity
+              maybeAutoSwitchSailConfig()
             } else if (v.path === options.speedSource) {
               const kt = v.value * MS_TO_KNOTS
               latest.bsp = kt
@@ -1036,14 +1143,26 @@ module.exports = function (app) {
     router.get('/profiles', (req, res) => {
       res.json({
         active: activeProfileId,
+        currentSailConfig: computeSailConfigLabel(),
         profiles: Object.keys(profiles).map((id) => ({
           id,
           name: profiles[id].name,
           cellCount: profiles[id].cells.size,
           createdAt: profiles[id].createdAt,
-          lastUpdated: profiles[id].lastUpdated
+          lastUpdated: profiles[id].lastUpdated,
+          sailConfig: profiles[id].sailConfig || null
         }))
       })
+    })
+
+    router.post('/profiles/:id/sail-config', (req, res) => {
+      const id = req.params.id
+      if (!profiles[id]) return res.status(404).json({ error: `unknown profile '${id}'` })
+      const raw = req.body && req.body.sailConfig ? String(req.body.sailConfig).trim() : ''
+      profiles[id].sailConfig = raw || null
+      dirty = true
+      saveToDisk()
+      res.json({ ok: true, id, sailConfig: profiles[id].sailConfig })
     })
 
     router.post('/profiles', (req, res) => {

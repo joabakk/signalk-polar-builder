@@ -71,6 +71,7 @@ All of this is exposed as plugin config in the Signal K admin UI:
 | `persistIntervalSeconds` | 30 | How often the table is saved to disk |
 | `publishPerformanceData` | `true` | Publish live `performance.*` Signal K deltas (see below) |
 | `performanceDampingSeconds` | 15 | Server-side TWS damping for published performance data — separate from the webapp's own slider |
+| `autoSwitchBySailConfig` | `false` | Auto-activate a profile when its tagged sail configuration matches what's currently up (see [Sail configuration](#sail-configuration)) |
 
 Tighten the std-dev thresholds if you want a "purer" polar (fewer, more
 reliable points); loosen them if your instruments are noisy and you're
@@ -89,6 +90,11 @@ Once installed and started, the plugin exposes:
   profile live recording writes to
 - `DELETE /plugins/polar-builder/profiles/:id` — delete a profile (refused
   if it's the only one left)
+- `POST /plugins/polar-builder/profiles/:id/sail-config` `{sailConfig}` —
+  tag (or clear, with an empty/omitted value) a profile's sail
+  configuration label; `GET /profiles` also reports the live
+  `currentSailConfig` computed from `sails.inventory.*` (see
+  [Sail configuration](#sail-configuration))
 - `GET /plugins/polar-builder/polar.json` — raw sparse cell list
   (`tws`, `twa`, `count`, `avgBsp`, `maxBsp`, `polarBsp`, `lastUpdated`)
 - `GET /plugins/polar-builder/polar/matrix` — dense matrix keyed by the
@@ -207,6 +213,28 @@ Yes/Cancel buttons rather than a native browser confirm dialog, since
 `window.confirm()` is unreliable (sometimes silently auto-dismissed) inside
 embedded/kiosk webviews like a chartplotter's browser.
 
+### Sail configuration
+
+If your boat publishes the Signal K `sails.inventory.*` group (`.active`,
+`.name`, `.type`, `.reducedState` — most don't yet, but it's part of the
+spec), the Profile panel shows a live "Sails now: ..." reading built from
+whichever sails are currently marked active, e.g. `J1+Main` or
+`Genaker+Main(reef1)`. Any profile can be tagged with a sail-config label —
+type one in and hit **Save tag**, or use **Tag with current sails** to
+one-click-tag it with whatever's up right now. When the live reading
+doesn't match the *active* profile's tag but some *other* profile is
+tagged for it, a **Switch to '...'** button appears so you can jump there
+in one click.
+
+Set `autoSwitchBySailConfig` (off by default) to do that switch
+automatically instead of showing the button — it only ever activates a
+profile you've explicitly tagged; it never creates one, so a moment of
+transitional or unrecognized sail state just does nothing rather than
+spawning junk profiles. The Inputs panel's sail rows also work a bit
+differently from the other optional inputs: "active" there means "we have
+a known reading" rather than "updated in the last 10 seconds", since a lot
+of sail instrumentation only reports on change, not continuously.
+
 ### Import / export
 
 The Import/export panel exports the viewed profile as CSV or a
@@ -323,6 +351,13 @@ when you're done testing and ready to go sailing for real.
     appear and differ, `velocityMadeGood`'s sign flips between an upwind
     and downwind heading, and `tackTrue` matches the expected
     `heading + 2×TWA` formula.
+
+11. **To check sail-configuration tagging and auto-switch**, run
+    `node test/test-sail-config.js` — tags two temporary profiles with
+    different sail configs, feeds `sails.inventory.*` deltas over the
+    websocket, and confirms the active profile follows along with
+    `autoSwitchBySailConfig` on but stays put (despite a matching tag)
+    with it off.
 
 ## Notes / things you may want to extend
 
