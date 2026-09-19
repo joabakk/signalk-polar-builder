@@ -142,6 +142,16 @@
           </div>
         </div>
         <div class="profile-status" id="profileStatus"></div>
+        <div class="profile-status" id="liveSailConfig" style="margin-top:4px">Sails now: &ndash;</div>
+        <div class="row">
+          <input type="text" id="sailConfigInput" placeholder="Sail config tag">
+          <button id="saveSailConfigBtn">Save tag</button>
+        </div>
+        <div class="row">
+          <button id="useCurrentSailConfigBtn">Tag with current sails</button>
+          <button id="switchToSailMatchBtn" style="display:none">Switch</button>
+        </div>
+        <div class="note" id="sailConfigNote"></div>
       </div>
 
       <div class="section">
@@ -218,6 +228,12 @@
   var deleteConfirmYes = document.getElementById('deleteConfirmYes')
   var deleteConfirmNo = document.getElementById('deleteConfirmNo')
   var profileStatus = document.getElementById('profileStatus')
+  var liveSailConfigEl = document.getElementById('liveSailConfig')
+  var sailConfigInput = document.getElementById('sailConfigInput')
+  var saveSailConfigBtn = document.getElementById('saveSailConfigBtn')
+  var useCurrentSailConfigBtn = document.getElementById('useCurrentSailConfigBtn')
+  var switchToSailMatchBtn = document.getElementById('switchToSailMatchBtn')
+  var sailConfigNote = document.getElementById('sailConfigNote')
   var exportCsvLink = document.getElementById('exportCsv')
   var exportPolLink = document.getElementById('exportPol')
   var importFile = document.getElementById('importFile')
@@ -289,6 +305,7 @@
   var profilesList = []
   var activeProfileId = null
   var viewedProfileId = null
+  var currentSailConfig = null
 
   function matrixUrlFor (profileId) {
     return '/plugins/polar-builder/polar/matrix?profile=' + encodeURIComponent(profileId)
@@ -315,16 +332,55 @@
     updateExportLinks()
   }
 
+  // Drives the "Sails now: ..." readout and the tag/switch controls from
+  // whatever fetchProfiles() last fetched - no separate polling loop.
+  function updateSailConfigUI () {
+    var viewed = profilesList.filter(function (p) { return p.id === viewedProfileId })[0]
+    sailConfigInput.value = (viewed && viewed.sailConfig) || ''
+    liveSailConfigEl.textContent = 'Sails now: ' + (currentSailConfig || '–')
+
+    if (!currentSailConfig) {
+      switchToSailMatchBtn.style.display = 'none'
+      sailConfigNote.textContent = ''
+      return
+    }
+    var active = profilesList.filter(function (p) { return p.id === activeProfileId })[0]
+    if (active && active.sailConfig === currentSailConfig) {
+      switchToSailMatchBtn.style.display = 'none'
+      sailConfigNote.textContent = ''
+      return
+    }
+    var match = profilesList.filter(function (p) { return p.sailConfig === currentSailConfig })[0]
+    if (match) {
+      switchToSailMatchBtn.style.display = 'inline-block'
+      switchToSailMatchBtn.textContent = "Switch to '" + match.name + "'"
+      sailConfigNote.textContent = ''
+    } else {
+      switchToSailMatchBtn.style.display = 'none'
+      sailConfigNote.textContent = 'No profile tagged for current sails.'
+    }
+  }
+
+  function setSailConfig (profileId, sailConfig) {
+    return fetch(PROFILES_URL + '/' + encodeURIComponent(profileId) + '/sail-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sailConfig: sailConfig })
+    })
+  }
+
   function fetchProfiles () {
     fetch(PROFILES_URL)
       .then(function (r) { return r.json() })
       .then(function (json) {
         profilesList = json.profiles || []
         activeProfileId = json.active
+        currentSailConfig = json.currentSailConfig || null
         if (!viewedProfileId || !profilesList.some(function (p) { return p.id === viewedProfileId })) {
           viewedProfileId = activeProfileId
         }
         renderProfileSelect()
+        updateSailConfigUI()
         fetchMatrix()
       })
       .catch(function () {})
@@ -337,6 +393,7 @@
     importConfirmBlock.style.display = 'none'
     pendingImport = null
     renderProfileSelect()
+    updateSailConfigUI()
     fetchMatrix()
   })
 
@@ -361,6 +418,28 @@
   activateBtn.addEventListener('click', function () {
     if (!viewedProfileId) return
     fetch(PROFILES_URL + '/' + encodeURIComponent(viewedProfileId) + '/activate', { method: 'POST' })
+      .then(function () { fetchProfiles() })
+      .catch(function () {})
+  })
+
+  saveSailConfigBtn.addEventListener('click', function () {
+    if (!viewedProfileId) return
+    setSailConfig(viewedProfileId, sailConfigInput.value.trim() || null)
+      .then(function () { fetchProfiles() })
+      .catch(function () {})
+  })
+
+  useCurrentSailConfigBtn.addEventListener('click', function () {
+    if (!viewedProfileId || !currentSailConfig) return
+    setSailConfig(viewedProfileId, currentSailConfig)
+      .then(function () { fetchProfiles() })
+      .catch(function () {})
+  })
+
+  switchToSailMatchBtn.addEventListener('click', function () {
+    var match = profilesList.filter(function (p) { return p.sailConfig === currentSailConfig })[0]
+    if (!match) return
+    fetch(PROFILES_URL + '/' + encodeURIComponent(match.id) + '/activate', { method: 'POST' })
       .then(function () { fetchProfiles() })
       .catch(function () {})
   })
