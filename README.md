@@ -301,6 +301,13 @@ polar. Switch back to `default` afterward — via the webapp's Profile
 panel or `curl -X POST http://localhost:3000/plugins/polar-builder/profiles/default/activate` —
 when you're done testing and ready to go sailing for real.
 
+Once the plugin is installed and enabled (steps 1-3 below), `npm test`
+runs the fetch-only checks (`test-profiles.js`, `test-sail-config.js`,
+`test-mfd-display.js`) against `localhost:3000` in a few seconds — set
+`SK_HOST`/`SK_PORT` env vars first if your server isn't on the default.
+These don't need live sailing data; the slower `inject-*.js` scripts below
+are for exercising the actual recording pipeline.
+
 1. **Install the plugin into your server.** From your `signalk-server`'s
    data directory (usually `~/.signalk`):
    ```bash
