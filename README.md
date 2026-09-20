@@ -72,6 +72,7 @@ All of this is exposed as plugin config in the Signal K admin UI:
 | `publishPerformanceData` | `true` | Publish live `performance.*` Signal K deltas (see below) |
 | `performanceDampingSeconds` | 15 | Server-side TWS damping for published performance data — separate from the webapp's own slider |
 | `autoSwitchBySailConfig` | `false` | Auto-activate a profile when its tagged sail configuration matches what's currently up (see [Sail configuration](#sail-configuration)) |
+| `enableMfdDisplay` | `false` | Enable the read-only MFD tile webapp at `/signalk-polar-builder/mfd/` (see [MFD tile](#mfd-tile-signalk-mfd-plugin)) |
 
 Tighten the std-dev thresholds if you want a "purer" polar (fewer, more
 reliable points); loosen them if your instruments are noisy and you're
@@ -138,6 +139,7 @@ standard path is what lets those gateway plugins pick it up for free.
 | `performance.gybeAngle` / `.gybeAngleVelocityMadeGood` / `.gybeAngleTargetSpeed` | Same, **downwind** — the downwind target speed. |
 | `performance.targetSpeed` / `.targetAngle` | Whichever of beat/gybe currently applies — the single target-speed value for a simple gauge. |
 | `performance.tackTrue` / `.tackMagnetic` | Heading on the opposite tack right now (`heading + 2×TWA`), published whenever `navigation.headingTrue`/`headingMagnetic` is available on the bus — independent of the polar table. |
+| `performance.mfdDisplayEnabled` | `true` whenever `enableMfdDisplay` is on, so the MFD tile webapp can tell it's turned on without needing admin access. Never published when off (see [MFD tile](#mfd-tile-signalk-mfd-plugin)). |
 
 All polar-derived paths (everything except `velocityMadeGood` and the tack
 headings) need at least one recorded cell in the **active** profile;
@@ -253,6 +255,29 @@ already has any cells, the same inline confirmation used for delete asks
 you to confirm first (Replace warns it will erase existing cells, Merge
 warns it may overwrite some); importing into an empty profile needs no
 confirmation.
+
+### MFD tile (signalk-mfd-plugin)
+
+The main webapp above is a configuration tool — it reads and writes
+through this plugin's own `/plugins/polar-builder/*` REST API, which is
+admin-only. [signalk-mfd-plugin](https://github.com/htool/signalk-mfd-plugin)
+and similar multi-function-display frameworks embed tiles that can only
+reach the standard readonly Signal K API
+(`GET /signalk/v1/api/vessels/self/...`), so the main webapp can't be used
+as a tile directly.
+
+For that, set `enableMfdDisplay` to `true` and point your MFD tile at
+`http://<host>:<port>/signalk-polar-builder/mfd/`. It's a small,
+dependency-free, auto-refreshing display — no buttons, no keyboard
+interaction — showing four numbers read entirely from the standard
+`performance.*` deltas documented above: target speed, VMG, polar speed
+ratio (as a %), and target angle. It intentionally doesn't re-read raw
+wind/speed itself: `speedSource`/`windAngleSource` can point at
+nonstandard paths you've configured, but `performance.*` is always at the
+same fixed paths regardless, so the tile needs no knowledge of your
+instrument setup. With `enableMfdDisplay` off (the default), the tile
+shows a "not enabled" placeholder instead of numbers — see
+`performance.mfdDisplayEnabled` above for how it knows.
 
 ## Install
 

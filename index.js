@@ -456,6 +456,13 @@ module.exports = function (app) {
     const now = Date.now()
     const values = []
 
+    // Config reflection for the read-only MFD tile (public/mfd/index.html)
+    // - not sensor-derived, so not gated on freshness. Only ever published
+    // as `true`; the tile treats the path's absence as "not enabled".
+    if (options.enableMfdDisplay) {
+      values.push({ path: 'performance.mfdDisplayEnabled', value: true })
+    }
+
     const bspFresh = latest.bsp !== null && now - latest.bspTime <= PERFORMANCE_STALENESS_MS
     const twaFresh = latest.twa !== null && now - latest.twaTime <= PERFORMANCE_STALENESS_MS
     const twsFresh = latest.tws !== null && now - latest.twsTime <= PERFORMANCE_STALENESS_MS
@@ -1002,6 +1009,11 @@ module.exports = function (app) {
         type: 'boolean',
         title: 'Automatically activate a profile when its tagged sail configuration (sails.inventory.*) matches what\'s currently up - only switches among profiles you\'ve explicitly tagged, never creates one',
         default: false
+      },
+      enableMfdDisplay: {
+        type: 'boolean',
+        title: 'Enable the read-only MFD tile webapp (/signalk-polar-builder/mfd/) for use with signalk-mfd-plugin and similar frameworks',
+        default: false
       }
     }
   }
@@ -1029,7 +1041,8 @@ module.exports = function (app) {
         persistIntervalSeconds: 30,
         publishPerformanceData: true,
         performanceDampingSeconds: 15,
-        autoSwitchBySailConfig: false
+        autoSwitchBySailConfig: false,
+        enableMfdDisplay: false
       },
       opts || {}
     )

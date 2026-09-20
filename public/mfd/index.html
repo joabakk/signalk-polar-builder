@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polar Builder MFD</title>
+<style>
+  :root {
+    --bg: #0e1420;
+    --text: #e7ecf3;
+    --muted: #8b97ab;
+    --border: #2a3550;
+    --accent: #4da3ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6fa;
+      --text: #1a2233;
+      --muted: #5b6577;
+      --border: #dbe1ec;
+      --accent: #1c6fd6;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    width: 100%;
+    max-width: 480px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    text-align: center;
+  }
+  .label {
+    font-size: clamp(11px, 2.5vw, 14px);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .value {
+    font-size: clamp(28px, 8vw, 56px);
+    font-weight: 600;
+    line-height: 1.15;
+    color: var(--accent);
+  }
+  .unit {
+    font-size: clamp(12px, 3vw, 18px);
+    color: var(--muted);
+  }
+  .placeholder {
+    text-align: center;
+    color: var(--muted);
+    font-size: clamp(14px, 3.5vw, 20px);
+    max-width: 320px;
+    line-height: 1.5;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="grid hidden" id="grid">
+  <div class="card">
+    <div class="label">Target speed</div>
+    <div class="value"><span id="targetSpeed">&ndash;</span><span class="unit"> kn</span></div>
+  </div>
+  <div class="card">
+    <div class="label">VMG</div>
+    <div class="value"><span id="vmg">&ndash;</span><span class="unit"> kn</span></div>
+  </div>
+  <div class="card">
+    <div class="label">Polar %</div>
+    <div class="value"><span id="polarRatio">&ndash;</span><span class="unit">%</span></div>
+  </div>
+  <div class="card">
+    <div class="label">Target angle</div>
+    <div class="value"><span id="targetAngle">&ndash;</span><span class="unit">&deg;</span></div>
+  </div>
+</div>
+<div class="placeholder" id="placeholder">Polar Builder MFD display is not enabled.<br>Turn on &ldquo;Enable MFD display&rdquo; in the Polar Builder plugin settings.</div>
+<script>
+  var MS_TO_KTS = 1.9438444924574
+  var RAD_TO_DEG = 180 / Math.PI
+
+  function fmt (n, digits) {
+    return (Math.round(n * Math.pow(10, digits)) / Math.pow(10, digits)).toFixed(digits)
+  }
+
+  function setText (id, text) {
+    document.getElementById(id).textContent = text
+  }
+
+  function showEnabled (enabled) {
+    document.getElementById('grid').classList.toggle('hidden', !enabled)
+    document.getElementById('placeholder').classList.toggle('hidden', enabled)
+  }
+
+  function fetchPerformance () {
+    fetch('/signalk/v1/api/vessels/self/performance/')
+      .then(function (r) { return r.ok ? r.json() : null })
+      .then(function (json) {
+        if (!json || !json.mfdDisplayEnabled || json.mfdDisplayEnabled.value !== true) {
+          showEnabled(false)
+          return
+        }
+        showEnabled(true)
+        setText('targetSpeed', json.targetSpeed ? fmt(json.targetSpeed.value * MS_TO_KTS, 1) : '–')
+        setText('vmg', json.velocityMadeGood ? fmt(json.velocityMadeGood.value * MS_TO_KTS, 1) : '–')
+        setText('polarRatio', json.polarSpeedRatio ? fmt(json.polarSpeedRatio.value * 100, 0) : '–')
+        setText('targetAngle', json.targetAngle ? fmt(json.targetAngle.value * RAD_TO_DEG, 0) : '–')
+      })
+      .catch(function () { showEnabled(false) })
+  }
+
+  fetchPerformance()
+  setInterval(fetchPerformance, 2000)
+</script>
+</body>
+</html>
