@@ -12,7 +12,8 @@
     "sailing"
   ],
   "signalk": {
-    "displayName": "Polar Builder"
+    "displayName": "Polar Builder",
+    "appIcon": "icon.svg"
   },
   "author": "Joachim Bakke",
   "license": "MIT",
