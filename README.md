@@ -279,6 +279,16 @@ instrument setup. With `enableMfdDisplay` off (the default), the tile
 shows a "not enabled" placeholder instead of numbers — see
 `performance.mfdDisplayEnabled` above for how it knows.
 
+signalk-mfd-plugin expects each tile at its own IP address (tiles
+typically represent distinct hardware on the network), which doesn't fit
+a single signalk-server hosting several webapps on one IP. Their
+documented fix is a virtual IP per webapp on the server host, e.g.
+`sudo ip addr add 192.168.1.3/24 dev eth0` — since signalk-server listens
+on all interfaces, it'll answer on that address too, so you'd point this
+tile's URL at the virtual IP (`http://192.168.1.3:3000/signalk-polar-builder/mfd/`)
+instead of the server's primary address. This is a host networking step,
+not something this plugin needs to do anything about.
+
 ## Install
 
 Copy this directory into your Signal K server's `node_modules` (or
