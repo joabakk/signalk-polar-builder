@@ -1,6 +1,6 @@
 {
   "name": "signalk-polar-builder",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Self-expanding polar diagram builder for Signal K. Passively observes wind/speed data, detects steady-state sailing conditions, and accumulates a boat-speed-vs-TWS/TWA polar table over time.",
   "main": "index.js",
   "scripts": {
