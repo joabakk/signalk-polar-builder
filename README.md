@@ -12,11 +12,12 @@ boat's actual performance over time.
    `angleTrueGround`), `navigation.rateOfTurn`, and `propulsion.*.state`
    / `propulsion.*.revolutions` (any engine instance).
 2. **Engine gate**: if any engine is running — reported via
-   `propulsion.*.state !== 'stopped'` or RPM above a threshold — no
-   samples are recorded at all. It also waits a full stability window
-   after the engine stops before trusting the data again, so
-   motor-assisted speed can't leak into the table right at the moment
-   you cut the engine.
+   `propulsion.*.state !== 'stopped'`, RPM above a threshold, or
+   (optionally, for boats with no propulsion data at all) a configured
+   voltage signal above a threshold — no samples are recorded at all. It
+   also waits a full stability window after the engine stops before
+   trusting the data again, so motor-assisted speed can't leak into the
+   table right at the moment you cut the engine.
 3. Every second it looks at a rolling window (default 12s) of the wind/
    speed data and checks whether the boat is in **steady state**: low
    standard deviation on boat speed, TWS, and TWA, and a low rate of
@@ -56,6 +57,8 @@ All of this is exposed as plugin config in the Signal K admin UI:
 | `windAngleSource` | `environment.wind.angleTrueWater` | Which TWA path to use |
 | `useSignedTwa` | `false` | Keep port (-)/starboard (+) separate instead of folding to 0-180° |
 | `engineRpmThreshold` | 100 RPM | Treat any engine as "running" above this speed |
+| `engineVoltageSource` | *(none)* | Optional alternate engine-running signal: a path (e.g. a DC-DC charger's input voltage) to watch instead of/alongside propulsion.* — see [Notes](#notes--things-you-may-want-to-extend) |
+| `engineVoltageThreshold` | 13.2 V | Voltage on `engineVoltageSource` at/above which the engine is considered running |
 | `twsBucketSize` | 2 kt | Resolution of the TWS axis |
 | `twaBucketSize` | 5° | Resolution of the TWA axis |
 | `stabilityWindowSeconds` | 12 | How much history is examined per stability check |
@@ -403,13 +406,19 @@ are for exercising the actual recording pipeline.
 
 ## Notes / things you may want to extend
 
-- Engine detection relies on `propulsion.*.state` and/or
+- Engine detection primarily relies on `propulsion.*.state` and/or
   `propulsion.*.revolutions` being populated by your engine
   instrumentation (e.g. NMEA 2000 engine data, a RPM sensor, or a
-  manual toggle). If your boat has no propulsion data source at all,
-  the plugin has no way to know the engine is running and won't filter
-  motoring data — the REST `/polar/status` endpoint always reports
+  manual toggle) — the REST `/polar/status` endpoint always reports
   what it's currently seeing per engine instance so you can check this.
+  If your boat has no propulsion data source at all, set
+  `engineVoltageSource` to a path that rises when the engine starts —
+  e.g. a DC-DC charger's start-battery input voltage (a Victron Orion
+  XS or similar over VE.Direct, which only engages once the alternator
+  raises that voltage) — and `engineVoltageThreshold` to somewhere
+  between resting and charging voltage for your battery chemistry. It's
+  OR'd in alongside the propulsion.* signal, so configuring it is purely
+  additive and safe to leave on even if propulsion data later appears.
 - Heel angle is subscribed to (`navigation.attitude`) but not yet used —
   see [Performance data](#performance-data) for why `performance.leeway`
   isn't published. Current and sea state aren't accounted for at all —
