@@ -69,6 +69,15 @@ module.exports = function (app) {
   let engineRunning = false
   let engineStateChangedAt = Date.now()
 
+  // Alternate engine-running signal for boats with no propulsion.* data at
+  // all: a single configurable voltage path (e.g. a DC-DC charger's start-
+  // battery input voltage, which rises when the alternator is charging it)
+  // compared against a threshold. Disabled by default (engineVoltageSource
+  // unset) - purely additive, OR'd into recomputeEngineRunning() alongside
+  // the propulsion.* signal above.
+  let engineVoltage = null
+  let engineVoltageTime = null
+
   // Sliding windows of recent {t, v} samples used to judge stability
   const windows = {
     tws: new SlidingWindow(),
@@ -219,7 +228,7 @@ module.exports = function (app) {
   }
 
   function recomputeEngineRunning () {
-    const running = Object.keys(engines).some((id) => {
+    const fromPropulsion = Object.keys(engines).some((id) => {
       const e = engines[id]
       if (e.state && e.state !== 'stopped') return true
       if (typeof e.revolutionsHz === 'number' && Math.abs(e.revolutionsHz) * 60 >= options.engineRpmThreshold) {
@@ -227,7 +236,10 @@ module.exports = function (app) {
       }
       return false
     })
-    setEngineRunning(running)
+    const fromVoltage = !!options.engineVoltageSource &&
+      typeof engineVoltage === 'number' &&
+      engineVoltage >= options.engineVoltageThreshold
+    setEngineRunning(fromPropulsion || fromVoltage)
   }
 
   function updateEngineFromPath (path, value, now) {
@@ -620,6 +632,17 @@ module.exports = function (app) {
       })
     }
 
+    if (options.engineVoltageSource) {
+      inputs.push({
+        id: 'engineVoltage',
+        label: 'Engine voltage detection',
+        path: options.engineVoltageSource,
+        required: false,
+        active: isFresh(engineVoltageTime),
+        display: typeof engineVoltage === 'number' ? `${round(engineVoltage, 2)} V` : null
+      })
+    }
+
     const sailIds = Object.keys(sails)
     if (!sailIds.length) {
       inputs.push({
@@ -924,6 +947,16 @@ module.exports = function (app) {
         title: 'Treat engine as running above this speed (RPM) - checked in addition to propulsion.*.state',
         default: 100
       },
+      engineVoltageSource: {
+        type: 'string',
+        title: 'Optional: a Signal K path to watch as an alternate engine-running signal, for boats with no propulsion.* data - e.g. a DC-DC charger\'s start-battery input voltage, which rises when the alternator is charging it. Leave blank to disable.',
+        default: ''
+      },
+      engineVoltageThreshold: {
+        type: 'number',
+        title: 'Treat engine as running at or above this voltage on engineVoltageSource - set above resting battery voltage, below alternator-charging voltage',
+        default: 13.2
+      },
       twsBucketSize: {
         type: 'number',
         title: 'TWS bucket size (knots)',
@@ -1025,6 +1058,8 @@ module.exports = function (app) {
         windAngleSource: 'environment.wind.angleTrueWater',
         useSignedTwa: false,
         engineRpmThreshold: 100,
+        engineVoltageSource: '',
+        engineVoltageThreshold: 13.2,
         twsBucketSize: 2,
         twaBucketSize: 5,
         stabilityWindowSeconds: 12,
@@ -1074,6 +1109,9 @@ module.exports = function (app) {
         { path: 'sails.inventory.*.reducedState', period: 1000 }
       ]
     }
+    if (options.engineVoltageSource) {
+      subscription.subscribe.push({ path: options.engineVoltageSource, period: 1000 })
+    }
 
     app.subscriptionmanager.subscribe(
       subscription,
@@ -1087,6 +1125,10 @@ module.exports = function (app) {
 
             if (updateEngineFromPath(v.path, v.value, now)) {
               // handled - propulsion.* path
+            } else if (options.engineVoltageSource && v.path === options.engineVoltageSource) {
+              engineVoltage = v.value
+              engineVoltageTime = now
+              recomputeEngineRunning()
             } else if (updateSailFromPath(v.path, v.value, now)) {
               // handled - sails.inventory.* path; check for an auto-switch opportunity
               maybeAutoSwitchSailConfig()
