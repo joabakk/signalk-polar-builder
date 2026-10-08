@@ -94,7 +94,7 @@ async function main () {
   await wait(500)
   r = await api('/inputs')
   const row = r.body.inputs.find((i) => i.id === 'engineVoltage')
-  assert(!!row && row.active && row.display === '12.60 V', `engineVoltage row shows 12.60 V (got ${row && row.display})`)
+  assert(!!row && row.active && row.display === '12.6', `engineVoltage row shows 12.6 (got ${row && row.display})`)
   r = await api('/polar/status')
   assert(r.body.engineRunning === false, `engineRunning is false below threshold (got ${r.body.engineRunning})`)
 

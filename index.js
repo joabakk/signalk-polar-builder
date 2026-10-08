@@ -70,11 +70,13 @@ module.exports = function (app) {
   let engineStateChangedAt = Date.now()
 
   // Alternate engine-running signal for boats with no propulsion.* data at
-  // all: a single configurable voltage path (e.g. a DC-DC charger's start-
-  // battery input voltage, which rises when the alternator is charging it)
-  // compared against a threshold. Disabled by default (engineVoltageSource
-  // unset) - purely additive, OR'd into recomputeEngineRunning() alongside
-  // the propulsion.* signal above.
+  // all: a single configurable numeric path compared against a threshold.
+  // Despite the option names it needn't be a voltage - e.g. a DC-DC
+  // charger's output current only rises once the alternator is charging
+  // the start battery, which is a cleaner signal than the (often already
+  // high) house-side voltage Venus OS exposes. Disabled by default
+  // (engineVoltageSource unset) - purely additive, OR'd into
+  // recomputeEngineRunning() alongside the propulsion.* signal above.
   let engineVoltage = null
   let engineVoltageTime = null
 
@@ -635,11 +637,11 @@ module.exports = function (app) {
     if (options.engineVoltageSource) {
       inputs.push({
         id: 'engineVoltage',
-        label: 'Engine voltage detection',
+        label: 'Engine detection (extra signal)',
         path: options.engineVoltageSource,
         required: false,
         active: isFresh(engineVoltageTime),
-        display: typeof engineVoltage === 'number' ? `${round(engineVoltage, 2)} V` : null
+        display: typeof engineVoltage === 'number' ? String(round(engineVoltage, 2)) : null
       })
     }
 
@@ -949,12 +951,12 @@ module.exports = function (app) {
       },
       engineVoltageSource: {
         type: 'string',
-        title: 'Optional: a Signal K path to watch as an alternate engine-running signal, for boats with no propulsion.* data - e.g. a DC-DC charger\'s start-battery input voltage, which rises when the alternator is charging it. Leave blank to disable.',
+        title: 'Optional: a Signal K path to watch as an alternate engine-running signal, for boats with no propulsion.* data. Any numeric path works despite the name - e.g. a DC-DC charger\'s output current (electrical.alternator.<id>.current), which only rises once the alternator is charging the start battery. Avoid a path that is already high with the engine off (e.g. house-battery voltage). Leave blank to disable.',
         default: ''
       },
       engineVoltageThreshold: {
         type: 'number',
-        title: 'Treat engine as running at or above this voltage on engineVoltageSource - set above resting battery voltage, below alternator-charging voltage',
+        title: 'Treat engine as running at or above this value on engineVoltageSource, in that path\'s own unit (volts for a voltage path, amps for a current path) - set above the engine-off value, below the engine-running value',
         default: 13.2
       },
       twsBucketSize: {

@@ -14,7 +14,8 @@ boat's actual performance over time.
 2. **Engine gate**: if any engine is running — reported via
    `propulsion.*.state !== 'stopped'`, RPM above a threshold, or
    (optionally, for boats with no propulsion data at all) a configured
-   voltage signal above a threshold — no samples are recorded at all. It
+   signal such as a charger's output current above a threshold — no
+   samples are recorded at all. It
    also waits a full stability window after the engine stops before
    trusting the data again, so motor-assisted speed can't leak into the
    table right at the moment you cut the engine.
@@ -57,8 +58,8 @@ All of this is exposed as plugin config in the Signal K admin UI:
 | `windAngleSource` | `environment.wind.angleTrueWater` | Which TWA path to use |
 | `useSignedTwa` | `false` | Keep port (-)/starboard (+) separate instead of folding to 0-180° |
 | `engineRpmThreshold` | 100 RPM | Treat any engine as "running" above this speed |
-| `engineVoltageSource` | *(none)* | Optional alternate engine-running signal: a path (e.g. a DC-DC charger's input voltage) to watch instead of/alongside propulsion.* — see [Notes](#notes--things-you-may-want-to-extend) |
-| `engineVoltageThreshold` | 13.2 V | Voltage on `engineVoltageSource` at/above which the engine is considered running |
+| `engineVoltageSource` | *(none)* | Optional alternate engine-running signal: any numeric path (despite the name — e.g. a DC-DC charger's output current) to watch instead of/alongside propulsion.* — see [Notes](#notes--things-you-may-want-to-extend) |
+| `engineVoltageThreshold` | 13.2 | Value on `engineVoltageSource` at/above which the engine is considered running, in that path's own unit (V for a voltage path, A for a current path) |
 | `twsBucketSize` | 2 kt | Resolution of the TWS axis |
 | `twaBucketSize` | 5° | Resolution of the TWA axis |
 | `stabilityWindowSeconds` | 12 | How much history is examined per stability check |
@@ -412,13 +413,27 @@ are for exercising the actual recording pipeline.
   manual toggle) — the REST `/polar/status` endpoint always reports
   what it's currently seeing per engine instance so you can check this.
   If your boat has no propulsion data source at all, set
-  `engineVoltageSource` to a path that rises when the engine starts —
-  e.g. a DC-DC charger's start-battery input voltage (a Victron Orion
-  XS or similar over VE.Direct, which only engages once the alternator
-  raises that voltage) — and `engineVoltageThreshold` to somewhere
-  between resting and charging voltage for your battery chemistry. It's
-  OR'd in alongside the propulsion.* signal, so configuring it is purely
-  additive and safe to leave on even if propulsion data later appears.
+  `engineVoltageSource` to a numeric path that is low with the engine off
+  and high with it running, and `engineVoltageThreshold` to a value in
+  between, in that path's own unit. Despite the option names it doesn't
+  have to be a voltage. It's OR'd in alongside the propulsion.* signal,
+  so configuring it is purely additive and safe to leave on even if
+  propulsion data later appears.
+
+  The usual case is a Victron Orion XS DC-DC charger charging the house
+  bank from the start battery over VE.Direct: it only starts charging
+  once the alternator raises the start-battery voltage, so its output is
+  a good engine-running signal. Venus OS publishes it to Signal K as
+  `electrical.alternator.<id>.*` (not under `chargers`), with `.current`,
+  `.power`, `.voltage` and `.chargingMode`. **Use `.current` (threshold
+  `1`), not `.voltage`**: the voltage exposed there is the output side
+  (the house bank), not the start-battery input, and it's already ~13.5 V
+  with the engine off whenever shore power or solar is charging the
+  house bank — which with the default 13.2 threshold would read as
+  "engine running" permanently and block all recording. The `<id>` is
+  assigned by Venus OS (check
+  `/signalk/v1/api/vessels/self/electrical/alternator/`) and can change
+  if the device is re-paired.
 - Heel angle is subscribed to (`navigation.attitude`) but not yet used —
   see [Performance data](#performance-data) for why `performance.leeway`
   isn't published. Current and sea state aren't accounted for at all —
