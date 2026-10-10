@@ -530,6 +530,30 @@ module.exports = function (app) {
         values.push({ path: 'performance.targetSpeed', value: ktToMs(gybe.bsp) })
         values.push({ path: 'performance.targetAngle', value: degToRad(gybe.twa) })
       }
+
+      // The next two are not in the Signal K spec - published because
+      // signalk-bandg-performance-plugin reads them by default.
+      const targetLeg = upwind ? beat : gybe
+
+      // "Optimum Wind Angle": target TWA minus the current TWA (signed, same
+      // tack side as the boat), so 0 = on target. The sign convention B&G
+      // expects isn't documented anywhere findable - unverified on hardware.
+      if (targetLeg) {
+        values.push({ path: 'performance.optimumWindAngle', value: degToRad(targetLeg.twa - latest.twa) })
+      }
+
+      // "VMG Performance": actual VMG over the polar's best VMG for the
+      // current leg, 1.0 = 100%. Clamped at 0 so a boat sailing away from the
+      // mark doesn't send a negative percentage.
+      if (targetLeg && bspFresh) {
+        const targetVmgKt = rawVmgKt(targetLeg.twa, targetLeg.bsp)
+        if (Math.abs(targetVmgKt) > 0.01) {
+          values.push({
+            path: 'performance.velocityMadeGoodRatio',
+            value: Math.max(0, rawVmgKt(latest.twa, latest.bsp) / targetVmgKt)
+          })
+        }
+      }
     }
 
     if (values.length) {

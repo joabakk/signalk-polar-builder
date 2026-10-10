@@ -163,6 +163,20 @@ async function main () {
     assert(Math.abs(received['performance.targetSpeed'] - received['performance.beatAngleTargetSpeed']) < 1e-6, 'targetSpeed matches beatAngleTargetSpeed while sailing upwind')
   }
 
+  const upwindRatio = received['performance.velocityMadeGoodRatio']
+  assert(typeof upwindRatio === 'number' && upwindRatio > 0, `velocityMadeGoodRatio is present and positive upwind (got ${upwindRatio})`)
+  if (typeof upwindRatio === 'number') {
+    const expectedRatio = received['performance.velocityMadeGood'] / received['performance.beatAngleVelocityMadeGood']
+    assert(Math.abs(upwindRatio - expectedRatio) < 0.02, `velocityMadeGoodRatio ~= VMG / beatAngleVelocityMadeGood (got ${upwindRatio.toFixed(3)}, expected ~${expectedRatio.toFixed(3)})`)
+  }
+
+  const upwindOwa = received['performance.optimumWindAngle']
+  assert(typeof upwindOwa === 'number', 'optimumWindAngle is present')
+  if (typeof upwindOwa === 'number') {
+    const expectedOwa = received['performance.targetAngle'] - 40 * DEG_TO_RAD
+    assert(Math.abs(upwindOwa - expectedOwa) < 0.02, `optimumWindAngle ~= targetAngle - current TWA (got ${(upwindOwa * RAD_TO_DEG).toFixed(1)}deg, expected ~${(expectedOwa * RAD_TO_DEG).toFixed(1)}deg)`)
+  }
+
   const expectedTackTrue = normalizeRadTwoPi(0 + 2 * (40 * DEG_TO_RAD))
   assert(typeof received['performance.tackTrue'] === 'number', 'tackTrue is present')
   if (typeof received['performance.tackTrue'] === 'number') {
@@ -184,6 +198,18 @@ async function main () {
 
   assert(typeof received['performance.velocityMadeGood'] === 'number' && received['performance.velocityMadeGood'] < 0,
     `velocityMadeGood is negative downwind (got ${received['performance.velocityMadeGood']})`)
+  const downwindOwa = received['performance.optimumWindAngle']
+  assert(typeof downwindOwa === 'number', 'optimumWindAngle is present downwind too')
+  if (typeof downwindOwa === 'number') {
+    const expectedOwa = received['performance.targetAngle'] - 150 * DEG_TO_RAD
+    assert(Math.abs(downwindOwa - expectedOwa) < 0.02, `optimumWindAngle ~= targetAngle - current TWA downwind (got ${(downwindOwa * RAD_TO_DEG).toFixed(1)}deg, expected ~${(expectedOwa * RAD_TO_DEG).toFixed(1)}deg)`)
+  }
+  const downwindRatio = received['performance.velocityMadeGoodRatio']
+  assert(typeof downwindRatio === 'number' && downwindRatio > 0, `velocityMadeGoodRatio is positive downwind too (got ${downwindRatio})`)
+  if (typeof downwindRatio === 'number') {
+    const expectedRatio = received['performance.velocityMadeGood'] / received['performance.gybeAngleVelocityMadeGood']
+    assert(Math.abs(downwindRatio - expectedRatio) < 0.02, `velocityMadeGoodRatio ~= VMG / gybeAngleVelocityMadeGood (got ${downwindRatio.toFixed(3)}, expected ~${expectedRatio.toFixed(3)})`)
+  }
 
   console.log('\n--- Cleanup ---')
   r = await api(`/profiles/${encodeURIComponent(initialActive)}/activate`, { method: 'POST' })
