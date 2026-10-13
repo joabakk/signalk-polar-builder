@@ -499,7 +499,9 @@ module.exports = function (app) {
       const curve = buildCurve(matrix.tws, matrix.rows, dampedTws)
       const points = curve.points
 
-      const polarSpeedKt = interpolateAtTwa(points, latest.twa)
+      // An unsigned table only has positive TWA rows, so look up port tack
+      // by magnitude - a negative angle would clamp to the lowest row.
+      const polarSpeedKt = interpolateAtTwa(points, options.useSignedTwa ? latest.twa : Math.abs(latest.twa))
       if (polarSpeedKt !== null) {
         values.push({ path: 'performance.polarSpeed', value: ktToMs(polarSpeedKt) })
         if (bspFresh && polarSpeedKt > 0) {

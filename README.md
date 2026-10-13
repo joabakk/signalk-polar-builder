@@ -5,6 +5,15 @@ A Signal K server plugin that builds a **self-expanding polar diagram**
 live data go by. There's nothing to type in by hand — it learns your
 boat's actual performance over time.
 
+![The Polar Builder webapp: recorded wind-speed bands, the live damped curve with VMG laylines, and the Inputs and Profile panels](public/screenshots/polar-builder.png)
+
+There's also a small read-only tile for MFDs, see [MFD tile](#mfd-tile-signalk-mfd-plugin):
+
+![The MFD tile showing target speed, VMG, polar percentage and target angle](public/screenshots/mfd-tile.png)
+
+(Screenshots are of the demo server, `node test/demo-server.js`: a seeded
+demo polar and simulated live data, not a real boat.)
+
 ## How it works
 
 1. **Subscribes** to `navigation.speedThroughWater` (or SOG),
@@ -317,12 +326,21 @@ polar. Switch back to `default` afterward — via the webapp's Profile
 panel or `curl -X POST http://localhost:3000/plugins/polar-builder/profiles/default/activate` —
 when you're done testing and ready to go sailing for real.
 
-Once the plugin is installed and enabled (steps 1-3 below), `npm test`
-runs the fetch-only checks (`test-profiles.js`, `test-sail-config.js`,
-`test-mfd-display.js`) against `localhost:3000` in a few seconds — set
-`SK_HOST`/`SK_PORT` env vars first if your server isn't on the default.
-These don't need live sailing data; the slower `inject-*.js` scripts below
-are for exercising the actual recording pipeline.
+`npm test` needs no Signal K server: it runs the real plugin against a mock
+server API (`test/helpers/harness.js`) with a fake clock — engine
+detection, stability gating and recording, every published `performance.*`
+value, profiles, import/export, and sail-config switching — in well under a
+second (Node 22+). `node test/demo-server.js` serves the webapp the same
+way, with a seeded polar and a boat sailing upwind, for trying it out or
+retaking the screenshots.
+
+Once the plugin is installed and enabled in a real server (steps 1-3
+below), `npm run test:live` runs the fetch-only checks (`test-profiles.js`,
+`test-sail-config.js`, `test-mfd-display.js`, `test-engine-voltage.js`)
+against `localhost:3000` in a few seconds — set `SK_HOST`/`SK_PORT` env vars
+first if your server isn't on the default. These don't need live sailing
+data; the slower `inject-*.js` scripts below are for exercising the actual
+recording pipeline.
 
 1. **Install the plugin into your server.** From your `signalk-server`'s
    data directory (usually `~/.signalk`):
