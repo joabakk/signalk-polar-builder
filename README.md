@@ -5,11 +5,11 @@ A Signal K server plugin that builds a **self-expanding polar diagram**
 live data go by. There's nothing to type in by hand — it learns your
 boat's actual performance over time.
 
-![The Polar Builder webapp: recorded wind-speed bands, the live damped curve with VMG laylines, and the Inputs and Profile panels](public/screenshots/polar-builder.png)
+![The Polar Builder webapp: recorded wind-speed bands, the live damped curve with VMG laylines, and the Inputs and Profile panels](screenshots/polar-builder.png)
 
 There's also a small read-only tile for MFDs, see [MFD tile](#mfd-tile-signalk-mfd-plugin):
 
-![The MFD tile showing target speed, VMG, polar percentage and target angle](public/screenshots/mfd-tile.png)
+![The MFD tile showing target speed, VMG, polar percentage and target angle](screenshots/mfd-tile.png)
 
 (Screenshots are of the demo server, `node test/demo-server.js`: a seeded
 demo polar and simulated live data, not a real boat.)
