@@ -16,6 +16,7 @@
  * display or a routing tool) to consume.
  */
 
+const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 
@@ -93,8 +94,10 @@ module.exports = function (app) {
   // no changes to work against whichever profile is currently active.
   function makeProfile (name) {
     const now = Date.now()
-    return { name, cells: new Map(), createdAt: now, lastUpdated: now, sailConfig: null }
+    // uuid: stable id for the Signal K spec's performance.activePolar path
+    return { name, cells: new Map(), createdAt: now, lastUpdated: now, sailConfig: null, uuid: crypto.randomUUID() }
   }
+  let lastPolarPublish = { id: null, stamp: null, time: 0 }
   let profiles = { default: makeProfile('default') }
   let activeProfileId = 'default'
   let cells = profiles[activeProfileId].cells
@@ -464,6 +467,68 @@ module.exports = function (app) {
   // so these values stay populated while motoring or between stability
   // windows.
 
+  // buildCurve clamps a TWS outside the table to its edge column; accept that
+  // only within one bucket of the recorded range.
+  function coveredCurve (matrix, tws) {
+    const curve = buildCurve(matrix.tws, matrix.rows, tws)
+    if (curve.clamped !== null && Math.abs(tws - curve.clamped) > options.twsBucketSize) return null
+    return curve
+  }
+
+  function twaCovered (points, twa) {
+    const angles = points.filter((p) => p.bsp !== null).map((p) => p.twa)
+    if (!angles.length) return false
+    return twa >= Math.min.apply(null, angles) - options.twaBucketSize &&
+      twa <= Math.max.apply(null, angles) + options.twaBucketSize
+  }
+
+  // ---- the active polar in the Signal K spec shape -------------------------
+  //
+  // performance.activePolar (a UUID) and performance.activePolarData
+  // ({ [uuid]: { id, name, windData: [...] } }, speeds m/s, angles rad), so
+  // other plugins and displays can read the table from the normal API rather
+  // than this plugin's admin-only REST routes. Republished when the active
+  // profile changes, and when its data changes at most every 30 s (a recording
+  // profile changes every few seconds and the object can be several kB).
+
+  const POLAR_PUBLISH_MIN_INTERVAL_MS = 30000
+
+  function buildSpecPolar (uuid, profile) {
+    const matrix = buildMatrix(true, profile.cells)
+    const signed = !!options.useSignedTwa
+    const windData = []
+    matrix.tws.forEach((tws) => {
+      const points = matrix.rows
+        .filter((row) => row.speeds[tws] !== null && row.speeds[tws] !== undefined)
+        .map((row) => ({ twa: row.twa, bsp: row.speeds[tws] }))
+      if (!points.length) return
+      const pair = (p) => [degToRad(p.twa), ktToMs(p.bsp)]
+      // One element for a symmetric table, two (starboard, port) for a signed one
+      const beats = (signed ? [bestVmgPoint(points, 0, 90, true), bestVmgPoint(points, -90, 0, true)] : [bestVmgPoint(points, 0, 90, true)]).filter(Boolean)
+      const gybes = (signed ? [bestVmgPoint(points, 90, 180, false), bestVmgPoint(points, -180, -90, false)] : [bestVmgPoint(points, 90, 180, false)]).filter(Boolean)
+      const entry = { trueWindSpeed: ktToMs(tws), angleData: points.map(pair) }
+      if (beats.length) entry.optimalBeats = beats.map(pair)
+      if (gybes.length) entry.optimalGybes = gybes.map(pair)
+      windData.push(entry)
+    })
+    const polar = { id: uuid, name: profile.name, windData }
+    if (profile.sailConfig) polar.description = `Sail configuration: ${profile.sailConfig}`
+    const out = {}
+    out[uuid] = polar
+    return out
+  }
+
+  function publishActivePolar (values, now) {
+    const profile = profiles[activeProfileId]
+    const profileChanged = lastPolarPublish.id !== activeProfileId
+    const dataChanged = lastPolarPublish.stamp !== profile.lastUpdated
+    if (!profileChanged && !(dataChanged && now - lastPolarPublish.time >= POLAR_PUBLISH_MIN_INTERVAL_MS)) return
+    values.push({ path: 'performance.activePolar', value: profile.uuid })
+    // null (= unknown) for an empty table, so a previous polar's data isn't left behind
+    values.push({ path: 'performance.activePolarData', value: profile.cells.size ? buildSpecPolar(profile.uuid, profile) : null })
+    lastPolarPublish = { id: activeProfileId, stamp: profile.lastUpdated, time: now }
+  }
+
   function publishPerformance () {
     if (!options.publishPerformanceData) return
 
@@ -494,14 +559,21 @@ module.exports = function (app) {
       }
     }
 
-    if (cells.size > 0 && twsFresh && twaFresh && dampedTws !== null) {
-      const matrix = buildMatrix(true, cells)
-      const curve = buildCurve(matrix.tws, matrix.rows, dampedTws)
+    publishActivePolar(values, now)
+
+    // Polar-derived values are only published where the table actually has
+    // data (within one bucket of its recorded range) - otherwise they'd be an
+    // edge-clamped extrapolation passed off as the polar.
+    const curve = cells.size > 0 && twsFresh && twaFresh && dampedTws !== null
+      ? coveredCurve(buildMatrix(true, cells), dampedTws)
+      : null
+    if (curve) {
       const points = curve.points
 
       // An unsigned table only has positive TWA rows, so look up port tack
       // by magnitude - a negative angle would clamp to the lowest row.
-      const polarSpeedKt = interpolateAtTwa(points, options.useSignedTwa ? latest.twa : Math.abs(latest.twa))
+      const twaLookup = options.useSignedTwa ? latest.twa : Math.abs(latest.twa)
+      const polarSpeedKt = twaCovered(points, twaLookup) ? interpolateAtTwa(points, twaLookup) : null
       if (polarSpeedKt !== null) {
         values.push({ path: 'performance.polarSpeed', value: ktToMs(polarSpeedKt) })
         if (bspFresh && polarSpeedKt > 0) {
@@ -724,8 +796,10 @@ module.exports = function (app) {
               cells: new Map(p.cells || []),
               createdAt: p.createdAt || Date.now(),
               lastUpdated: p.lastUpdated || Date.now(),
-              sailConfig: p.sailConfig || null
+              sailConfig: p.sailConfig || null,
+              uuid: p.uuid || crypto.randomUUID()
             }
+            if (!p.uuid) dirty = true // files from before uuids existed: persist the new ones
           })
           activeProfileId = profiles[parsed.activeProfile] ? parsed.activeProfile : Object.keys(profiles)[0]
           cells = profiles[activeProfileId].cells
@@ -742,6 +816,8 @@ module.exports = function (app) {
           dirty = true
           saveToDisk()
         }
+      } else {
+        dirty = true // fresh install: persist the new profile's uuid on the next save
       }
     } catch (e) {
       app.error(`polar-builder: failed to load stored polar data: ${e.message}`)
@@ -772,6 +848,7 @@ module.exports = function (app) {
           createdAt: p.createdAt,
           lastUpdated: p.lastUpdated,
           sailConfig: p.sailConfig || null,
+          uuid: p.uuid,
           cells: Array.from(p.cells.entries())
         }
       })
@@ -1115,6 +1192,7 @@ module.exports = function (app) {
     dataFile = path.join(dataDir, 'polars.json')
 
     loadFromDisk()
+    lastPolarPublish = { id: null, stamp: null, time: 0 }
 
     const subscription = {
       context: 'vessels.self',
@@ -1233,7 +1311,8 @@ module.exports = function (app) {
           cellCount: profiles[id].cells.size,
           createdAt: profiles[id].createdAt,
           lastUpdated: profiles[id].lastUpdated,
-          sailConfig: profiles[id].sailConfig || null
+          sailConfig: profiles[id].sailConfig || null,
+          uuid: profiles[id].uuid
         }))
       })
     })

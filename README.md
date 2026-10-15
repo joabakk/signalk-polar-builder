@@ -153,13 +153,19 @@ standard path is what lets those gateway plugins pick it up for free.
 | `performance.targetSpeed` / `.targetAngle` | Whichever of beat/gybe currently applies — the single target-speed value for a simple gauge. |
 | `performance.tackTrue` / `.tackMagnetic` | Heading on the opposite tack right now (`heading + 2×TWA`), published whenever `navigation.headingTrue`/`headingMagnetic` is available on the bus — independent of the polar table. |
 | `performance.optimumWindAngle` | Target TWA minus the current TWA (signed, same tack side as the boat), so `0` = sailing exactly the polar's target angle for the current leg. **Not part of the Signal K spec** — published because signalk-bandg-performance-plugin reads it by default as B&G's "Optimum Wind Angle" (which B&G defines as the difference from Target TWA, not the angle itself — use `performance.targetAngle` for that). The sign convention B&G expects wasn't confirmed against hardware: check the direction on your Zeus; if it's reversed, the sign needs flipping here (the bandg plugin has no per-path sign option). |
+| `performance.activePolar` / `performance.activePolarData` | The active profile's table in the Signal K spec shape, so other plugins and displays can read it from the normal API instead of this plugin's admin-only REST routes. `activePolar` is the profile's v4 UUID (stable across restarts, also shown as `uuid` in `GET /profiles`); `activePolarData` is `{ <uuid>: { id, name, windData: [...] } }` with one `windData` entry per recorded wind speed (`trueWindSpeed` in m/s, `angleData` as `[angle rad, speed m/s]` pairs, plus `optimalBeats`/`optimalGybes` — one element for a symmetric table, two (starboard, port) with `useSignedTwa`). Republished when the active profile changes, and when its data changes at most every 30 s. `activePolarData` is `null` while the active table is empty. |
 | `performance.velocityMadeGoodRatio` | Actual VMG divided by the polar's best VMG for the current leg (beat angle upwind, gybe angle downwind), where `1.0` = 100%; clamped at 0. **Not part of the Signal K spec** — published because [signalk-bandg-performance-plugin](https://github.com/htool/signalk-bandg-performance-plugin) reads it by default as "VMG Performance" for B&G Zeus/Vulcan/Triton2 displays. |
 | `performance.mfdDisplayEnabled` | `true` whenever `enableMfdDisplay` is on, so the MFD tile webapp can tell it's turned on without needing admin access. Never published when off (see [MFD tile](#mfd-tile-signalk-mfd-plugin)). |
 
 All polar-derived paths (everything except `velocityMadeGood` and the tack
 headings) need at least one recorded cell in the **active** profile;
 nothing is published for a path that isn't computable yet — Signal K
-convention is to omit an unknown value, not send a placeholder. The TWS
+convention is to omit an unknown value, not send a placeholder. That
+includes extrapolation: they're only published where the table actually has
+data — the damped TWS within one `twsBucketSize` of the recorded wind-speed
+range, and (for `polarSpeed`/`polarSpeedRatio`) the TWA within one
+`twaBucketSize` of the recorded angles — so a young polar doesn't report a
+plausible but made-up 100 % at wind speeds or angles it has never seen. The TWS
 used to pick a polar-table column is smoothed with its own server-side
 `performanceDampingSeconds` EMA (default 15s) so gauges don't jump every
 gust — a separate control from the webapp's own damping slider, since one
