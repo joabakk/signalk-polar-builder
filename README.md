@@ -185,6 +185,17 @@ sign convention there could actively mislead rather than just be absent.
 
 ## Webapp
 
+A status line above the chart (so it's still there with the side panel
+hidden) shows which polar is the **active** one, i.e. the profile being
+recorded into and used for the published `performance.*` values, with the
+chart's own profile in brackets if you're looking at a different one. Next
+to it are the **sail tags** of all your profiles: the active polar's tag is
+filled, and a tag matching the sails up right now carries a green dot.
+**Sails now** then says whether the sails up match the active polar's tag
+(`✓ matches the active polar`) or not (in amber, naming the profile that
+*is* tagged for them, if there is one) — the case where recording or
+reported performance would be using the wrong polar.
+
 The **Inputs** panel lists every Signal K path this plugin subscribes to —
 boat speed, true wind speed/angle, rate of turn, heading (true/magnetic),
 heel/attitude, and each detected engine instance — with a status dot (green

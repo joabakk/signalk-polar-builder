@@ -87,6 +87,13 @@
   .legend-header button { font-size: 11px; padding: 3px 8px; }
   .damped-readout { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
   .damped-readout span { color: var(--accent); font-weight: 500; }
+  .polar-status { font-size: 13px; color: var(--muted); margin: -6px 0 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; }
+  .polar-status b { color: var(--text); font-weight: 500; }
+  .tag-chip { display: inline-block; font-size: 12px; padding: 1px 8px; margin-left: 4px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .tag-chip.active { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 500; }
+  .tag-chip.live::before { content: '\25CF\00a0'; color: var(--status-ok); }
+  .match-ok { color: var(--status-ok); }
+  .match-differs { color: var(--live); }
   .input-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
   .input-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .input-label { flex: 1 1 auto; min-width: 0; }
@@ -106,6 +113,7 @@
     <div class="chart-wrap">
       <span class="badge" id="connBadge">connecting&hellip;</span>
       <div class="damped-readout">Damped TWS <span id="dampedTwsReadout">&ndash;</span></div>
+      <div class="polar-status" id="polarStatus"></div>
       <div id="emptyState" class="empty">No polar data recorded yet &mdash; go sailing, or run a test injector.</div>
       <svg id="chart" viewBox="0 0 600 600" style="width:100%;height:auto;display:none" role="img" aria-label="Polar diagram of boat speed versus true wind angle"></svg>
       <div class="note" id="clampNote"></div>
@@ -230,6 +238,7 @@
   var deleteConfirmNo = document.getElementById('deleteConfirmNo')
   var profileStatus = document.getElementById('profileStatus')
   var liveSailConfigEl = document.getElementById('liveSailConfig')
+  var polarStatusEl = document.getElementById('polarStatus')
   var sailConfigInput = document.getElementById('sailConfigInput')
   var saveSailConfigBtn = document.getElementById('saveSailConfigBtn')
   var useCurrentSailConfigBtn = document.getElementById('useCurrentSailConfigBtn')
@@ -362,6 +371,50 @@
     }
   }
 
+  // Which polar is recording, which sail tags exist (the active polar's is
+  // filled, any matching the sails up right now has a green dot), and whether
+  // the sails up match the active polar's tag. Lives above the chart rather
+  // than in the side panel so it's visible with the panel hidden. Profile
+  // names and tags are user text: built with textContent only.
+  function renderPolarStatus () {
+    polarStatusEl.textContent = ''
+    var active = profilesList.filter(function (p) { return p.id === activeProfileId })[0]
+    if (!active) return
+
+    function text (parent, value, tag, cls) {
+      var el = document.createElement(tag || 'span')
+      if (cls) el.className = cls
+      el.textContent = value
+      parent.appendChild(el)
+      return el
+    }
+
+    var polar = text(polarStatusEl, 'Active polar: ', 'span')
+    text(polar, active.name, 'b')
+    var viewed = profilesList.filter(function (p) { return p.id === viewedProfileId })[0]
+    if (viewed && viewed.id !== active.id) text(polar, ' (chart shows ' + viewed.name + ')')
+
+    var tagged = profilesList.filter(function (p) { return p.sailConfig })
+    var tags = text(polarStatusEl, 'Tags:', 'span')
+    if (!tagged.length) text(tags, ' none', 'span')
+    tagged.forEach(function (p) {
+      var chip = text(tags, p.sailConfig, 'span', 'tag-chip' + (p.id === activeProfileId ? ' active' : '') + (p.sailConfig === currentSailConfig ? ' live' : ''))
+      chip.title = p.name + (p.id === activeProfileId ? ' (active)' : '')
+    })
+
+    var sails = text(polarStatusEl, 'Sails now: ', 'span')
+    text(sails, currentSailConfig || '–', 'b')
+    if (currentSailConfig) {
+      if (active.sailConfig === currentSailConfig) {
+        text(sails, ' ✓ matches the active polar', 'span', 'match-ok')
+      } else {
+        var other = profilesList.filter(function (p) { return p.sailConfig === currentSailConfig })[0]
+        text(sails, active.sailConfig ? ' ≠ active polar is tagged ' + active.sailConfig : ' — active polar has no tag', 'span', 'match-differs')
+        if (other) text(sails, ' (' + other.name + ' is tagged for these sails)', 'span')
+      }
+    }
+  }
+
   function setSailConfig (profileId, sailConfig) {
     return fetch(PROFILES_URL + '/' + encodeURIComponent(profileId) + '/sail-config', {
       method: 'POST',
@@ -382,6 +435,7 @@
         }
         renderProfileSelect()
         updateSailConfigUI()
+        renderPolarStatus()
         fetchMatrix()
       })
       .catch(function () {})
@@ -395,6 +449,7 @@
     pendingImport = null
     renderProfileSelect()
     updateSailConfigUI()
+    renderPolarStatus()
     fetchMatrix()
   })
 
