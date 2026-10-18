@@ -260,10 +260,14 @@ learned one. Exactly one profile is **active** at a time and receives
 live-recorded samples; the others are frozen until reactivated. The
 webapp's Profile panel lets you switch which profile you're *viewing*
 independently of which one is *active*, create new profiles, reactivate
-an existing one, or delete one — all backed by the `/profiles` REST
-endpoints above. A fresh install starts with a single `default` profile.
-Deleting a profile shows an inline "are you sure" prompt with its own
-Yes/Cancel buttons rather than a native browser confirm dialog, since
+an existing one, **reset** one (erases its recorded cells but keeps the
+profile, its name and its sail tag — the way to clear junk, such as data
+recorded at a dock, without recreating and re-tagging it; backed by
+`POST /polar/reset?profile=<id>`), or delete one — all backed by the
+`/profiles` REST endpoints above. A fresh install starts with a single
+`default` profile. Resetting or deleting a profile shows an inline "are you
+sure" prompt with its own Yes/Cancel buttons rather than a native browser
+confirm dialog, since
 `window.confirm()` is unreliable (sometimes silently auto-dismissed) inside
 embedded/kiosk webviews like a chartplotter's browser.
 

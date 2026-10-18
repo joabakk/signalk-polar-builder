@@ -142,7 +142,15 @@
         </div>
         <div class="row" id="profileActionsRow">
           <button id="activateBtn">Set as active</button>
+          <button id="resetBtn" title="Erase the recorded cells of this profile, keeping the profile and its sail tag">Reset</button>
           <button id="deleteBtn">Delete</button>
+        </div>
+        <div id="resetConfirmBlock" style="display:none; margin-top:6px">
+          <div class="note" id="resetConfirmText" style="margin:0 0 6px"></div>
+          <div class="row" style="margin-top:0">
+            <button id="resetConfirmYes">Yes, reset</button>
+            <button id="resetConfirmNo">Cancel</button>
+          </div>
         </div>
         <div id="deleteConfirmBlock" style="display:none; margin-top:6px">
           <div class="note" id="deleteConfirmText" style="margin:0 0 6px"></div>
@@ -232,6 +240,11 @@
   var newProfileName = document.getElementById('newProfileName')
   var newProfileBtn = document.getElementById('newProfileBtn')
   var activateBtn = document.getElementById('activateBtn')
+  var resetBtn = document.getElementById('resetBtn')
+  var resetConfirmBlock = document.getElementById('resetConfirmBlock')
+  var resetConfirmText = document.getElementById('resetConfirmText')
+  var resetConfirmYes = document.getElementById('resetConfirmYes')
+  var resetConfirmNo = document.getElementById('resetConfirmNo')
   var deleteBtn = document.getElementById('deleteBtn')
   var deleteConfirmBlock = document.getElementById('deleteConfirmBlock')
   var deleteConfirmText = document.getElementById('deleteConfirmText')
@@ -339,6 +352,8 @@
     })
     if (viewedProfileId) profileSelect.value = viewedProfileId
     activateBtn.style.display = viewedProfileId === activeProfileId ? 'none' : 'inline-block'
+    var viewedProfile = profilesList.filter(function (p) { return p.id === viewedProfileId })[0]
+    resetBtn.style.display = viewedProfile && viewedProfile.cellCount > 0 ? 'inline-block' : 'none'
     var active = profilesList.filter(function (p) { return p.id === activeProfileId })[0]
     profileStatus.textContent = active ? ('Recording into: ' + active.name) : ''
     updateExportLinks()
@@ -447,6 +462,7 @@
     viewedProfileId = profileSelect.value
     twsVisibility = {}
     deleteConfirmBlock.style.display = 'none'
+    resetConfirmBlock.style.display = 'none'
     importConfirmBlock.style.display = 'none'
     pendingImport = null
     renderProfileSelect()
@@ -508,8 +524,37 @@
   // delete look like it "didn't work".
   deleteBtn.addEventListener('click', function () {
     if (!viewedProfileId) return
+    resetConfirmBlock.style.display = 'none'
     deleteConfirmText.textContent = 'Delete profile "' + viewedProfileId + '"? This cannot be undone.'
     deleteConfirmBlock.style.display = 'block'
+  })
+
+  // Reset erases a profile's recorded cells but keeps the profile, its name
+  // and its sail tag - the way to clear junk (e.g. data recorded at a dock)
+  // without recreating and re-tagging the profile.
+  resetBtn.addEventListener('click', function () {
+    var p = profilesList.filter(function (x) { return x.id === viewedProfileId })[0]
+    if (!p) return
+    deleteConfirmBlock.style.display = 'none'
+    resetConfirmText.textContent = 'Erase the ' + p.cellCount + ' recorded cell' + (p.cellCount === 1 ? '' : 's') + ' in "' + p.name + '"? The profile and its sail tag stay. This cannot be undone.'
+    resetConfirmBlock.style.display = 'block'
+  })
+
+  resetConfirmNo.addEventListener('click', function () {
+    resetConfirmBlock.style.display = 'none'
+  })
+
+  resetConfirmYes.addEventListener('click', function () {
+    var id = viewedProfileId
+    resetConfirmBlock.style.display = 'none'
+    if (!id) return
+    fetch('/plugins/polar-builder/polar/reset?profile=' + encodeURIComponent(id), { method: 'POST' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j } }) })
+      .then(function (res) {
+        if (!res.ok) { profileStatus.textContent = 'Error: ' + (res.body.error || 'could not reset profile'); return }
+        fetchProfiles()
+      })
+      .catch(function () { profileStatus.textContent = 'Error: reset request failed.' })
   })
 
   deleteConfirmNo.addEventListener('click', function () {
