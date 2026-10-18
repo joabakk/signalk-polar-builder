@@ -386,10 +386,12 @@ module.exports = function (app) {
     // full stability window before trusting the data - otherwise a stop
     // right at the edge of the window can leak motor-assisted speed in.
     if (engineRunning) {
+      noteCheck('engine')
       app.setPluginStatus(`Engine running - not recording - ${cells.size} cells recorded so far`)
       return
     }
     if (now - engineStateChangedAt < windowMs) {
+      noteCheck('engine-settling')
       app.setPluginStatus(`Engine recently stopped, waiting for clean data - ${cells.size} cells recorded so far`)
       return
     }
@@ -404,6 +406,7 @@ module.exports = function (app) {
       windows.twa.span() < windowMs * 0.8 ||
       windows.bsp.span() < windowMs * 0.8
     ) {
+      noteCheck('too-little-data')
       return
     }
 
@@ -413,6 +416,7 @@ module.exports = function (app) {
       now - latest.twaTime > windowMs ||
       now - latest.bspTime > windowMs
     ) {
+      noteCheck('stale-data')
       return
     }
 
@@ -435,24 +439,114 @@ module.exports = function (app) {
       twsMean <= options.maxTws &&
       bspMean >= options.minBsp
 
-    const stable =
-      withinRange &&
-      rotOk &&
-      twsStd <= options.maxTwsStdDev &&
-      bspStd <= options.maxSpeedStdDev &&
-      twaStats.std <= options.maxTwaStdDev
+    // Every criterion that fails, not just the first, so the diagnostics can
+    // tell "TWA alone is blocking" from "everything is unsteady".
+    const fails = []
+    if (!withinRange) fails.push('range')
+    if (!rotOk) fails.push('rateOfTurn')
+    if (twsStd > options.maxTwsStdDev) fails.push('tws')
+    if (bspStd > options.maxSpeedStdDev) fails.push('speed')
+    if (twaStats.std > options.maxTwaStdDev) fails.push('twa')
+    const stable = fails.length === 0
+
+    const stats = {
+      twsMean: round(twsMean, 2),
+      twaMean: round(twaStats.mean, 1),
+      bspMean: round(bspMean, 2),
+      twsStd: round(twsStd, 2),
+      twaStd: round(twaStats.std, 2),
+      speedStd: round(bspStd, 2),
+      rateOfTurn: latest.rot === null ? null : round(Math.abs(latest.rot), 2)
+    }
 
     app.setPluginStatus(
       stable
         ? `Stable: TWS ${round(twsMean, 1)}kt TWA ${round(twaStats.mean, 0)}deg BSP ${round(bspMean, 2)}kt - ${cells.size} cells`
-        : `Watching (not stable) - ${cells.size} cells recorded so far`
+        : `Watching (not stable: ${describeFails(fails, stats)}) - ${cells.size} cells recorded so far`
     )
 
-    if (!stable) return
-    if (now - lastSampleTime < options.sampleIntervalSeconds * 1000) return
+    if (!stable) {
+      noteCheck('blocked', fails, stats)
+      return
+    }
+    if (now - lastSampleTime < options.sampleIntervalSeconds * 1000) {
+      noteCheck('waiting', [], stats)
+      return
+    }
 
     lastSampleTime = now
     recordSample(twsMean, twaStats.mean, bspMean)
+    noteCheck('recorded', [], stats)
+  }
+
+  // ---- recording diagnostics ---------------------------------------------
+  //
+  // One entry per stability check (1/s) for the last hour: why the plugin
+  // did or didn't record, which criteria failed and by how much. Answers
+  // "why is nothing being recorded?" without a debug session, and shows how
+  // close the unsteady-ness is to the limits - the evidence for tuning them.
+
+  const DIAGNOSTICS_WINDOW = 3600
+  let diagLog = []
+
+  function noteCheck (reason, fails, stats) {
+    diagLog.push({ t: Date.now(), reason, fails: fails || [], stats: stats || null })
+    if (diagLog.length > DIAGNOSTICS_WINDOW) diagLog.shift()
+  }
+
+  function describeFails (fails, stats) {
+    const parts = []
+    if (fails.includes('range')) parts.push(`TWS ${stats.twsMean}kt / BSP ${stats.bspMean}kt outside the recording range`)
+    if (fails.includes('rateOfTurn')) parts.push(`turning ${stats.rateOfTurn}deg/s > ${options.maxRateOfTurn}`)
+    if (fails.includes('tws')) parts.push(`TWS +/-${stats.twsStd}kt > ${options.maxTwsStdDev}`)
+    if (fails.includes('speed')) parts.push(`BSP +/-${stats.speedStd}kt > ${options.maxSpeedStdDev}`)
+    if (fails.includes('twa')) parts.push(`TWA +/-${stats.twaStd}deg > ${options.maxTwaStdDev}`)
+    return parts.join(', ')
+  }
+
+  function diagnosticsSummary () {
+    const counts = {}
+    const blockedBy = { range: 0, rateOfTurn: 0, tws: 0, twa: 0, speed: 0 }
+    const onlyBlockedBy = { range: 0, rateOfTurn: 0, tws: 0, twa: 0, speed: 0 }
+    const spread = { twsStd: [], twaStd: [], speedStd: [], rateOfTurn: [] }
+    diagLog.forEach((e) => {
+      counts[e.reason] = (counts[e.reason] || 0) + 1
+      e.fails.forEach((f) => { blockedBy[f] += 1 })
+      if (e.fails.length === 1) onlyBlockedBy[e.fails[0]] += 1
+      if (e.stats) {
+        spread.twsStd.push(e.stats.twsStd)
+        spread.twaStd.push(e.stats.twaStd)
+        spread.speedStd.push(e.stats.speedStd)
+        if (e.stats.rateOfTurn !== null) spread.rateOfTurn.push(e.stats.rateOfTurn)
+      }
+    })
+    const pct = (arr, p) => (arr.length ? round(percentile(arr, p), 2) : null)
+    const last = diagLog.length ? diagLog[diagLog.length - 1] : null
+    return {
+      seconds: diagLog.length,
+      counts,
+      blockedBy,
+      onlyBlockedBy,
+      spread: Object.keys(spread).reduce((acc, k) => {
+        acc[k] = { median: pct(spread[k], 50), p90: pct(spread[k], 90) }
+        return acc
+      }, {}),
+      limits: {
+        maxTwsStdDev: options.maxTwsStdDev,
+        maxTwaStdDev: options.maxTwaStdDev,
+        maxSpeedStdDev: options.maxSpeedStdDev,
+        maxRateOfTurn: options.maxRateOfTurn,
+        minTws: options.minTws,
+        maxTws: options.maxTws,
+        minBsp: options.minBsp
+      },
+      last: last && {
+        reason: last.reason,
+        fails: last.fails,
+        stats: last.stats,
+        text: last.fails.length ? describeFails(last.fails, last.stats) : null
+      }
+    }
   }
 
   // ---- performance data publishing ---------------------------------------
@@ -1115,8 +1209,8 @@ module.exports = function (app) {
       },
       minBsp: {
         type: 'number',
-        title: 'Ignore samples below this boat speed (knots) - filters out moored/anchored data',
-        default: 0.3
+        title: 'Ignore samples below this boat speed (knots) - filters out moored/anchored data (sensor noise and tide at a dock easily reads 0.3-0.4 kt, so keep this well above that)',
+        default: 1
       },
       samplesPerCell: {
         type: 'number',
@@ -1175,7 +1269,7 @@ module.exports = function (app) {
         maxRateOfTurn: 3,
         minTws: 2,
         maxTws: 40,
-        minBsp: 0.3,
+        minBsp: 1,
         samplesPerCell: 50,
         percentile: 90,
         persistIntervalSeconds: 30,
@@ -1193,6 +1287,7 @@ module.exports = function (app) {
 
     loadFromDisk()
     lastPolarPublish = { id: null, stamp: null, time: 0 }
+    diagLog = []
 
     const subscription = {
       context: 'vessels.self',
@@ -1467,7 +1562,8 @@ module.exports = function (app) {
         lastSampleTime,
         latest,
         engineRunning,
-        engines
+        engines,
+        diagnostics: diagnosticsSummary()
       })
     })
 

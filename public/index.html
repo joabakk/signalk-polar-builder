@@ -114,6 +114,7 @@
       <span class="badge" id="connBadge">connecting&hellip;</span>
       <div class="damped-readout">Damped TWS <span id="dampedTwsReadout">&ndash;</span></div>
       <div class="polar-status" id="polarStatus"></div>
+      <div class="polar-status" id="recordStatus"></div>
       <div id="emptyState" class="empty">No polar data recorded yet &mdash; go sailing, or run a test injector.</div>
       <svg id="chart" viewBox="0 0 600 600" style="width:100%;height:auto;display:none" role="img" aria-label="Polar diagram of boat speed versus true wind angle"></svg>
       <div class="note" id="clampNote"></div>
@@ -239,6 +240,7 @@
   var profileStatus = document.getElementById('profileStatus')
   var liveSailConfigEl = document.getElementById('liveSailConfig')
   var polarStatusEl = document.getElementById('polarStatus')
+  var recordStatusEl = document.getElementById('recordStatus')
   var sailConfigInput = document.getElementById('sailConfigInput')
   var saveSailConfigBtn = document.getElementById('saveSailConfigBtn')
   var useCurrentSailConfigBtn = document.getElementById('useCurrentSailConfigBtn')
@@ -638,6 +640,69 @@
   setInterval(fetchProfiles, 15000)
   fetchInputs()
   setInterval(fetchInputs, 3000)
+
+  // ---- why is it (not) recording? -----------------------------------------
+
+  var REASON_TEXT = {
+    engine: 'engine running',
+    'engine-settling': 'waiting for a clean window after start-up or an engine stop',
+    'too-little-data': 'waiting for wind and boat-speed data',
+    'stale-data': 'wind or boat-speed data stopped arriving'
+  }
+  var BLOCK_LABEL = { twa: 'TWA', tws: 'TWS', speed: 'boat speed', rateOfTurn: 'turning', range: 'speed/wind range' }
+
+  function renderRecordStatus (diag) {
+    recordStatusEl.textContent = ''
+    if (!diag || !diag.last || !diag.seconds) return
+
+    function add (parent, value, tag, cls) {
+      var el = document.createElement(tag || 'span')
+      if (cls) el.className = cls
+      el.textContent = value
+      parent.appendChild(el)
+      return el
+    }
+    function pct (n) { return Math.round(100 * n / diag.seconds) + '%' }
+
+    var last = diag.last
+    var steady = last.reason === 'recorded' || last.reason === 'waiting'
+    var now = add(recordStatusEl, '', 'span')
+    if (steady) {
+      add(now, 'Recording: sailing is steady ✓', 'span', 'match-ok')
+    } else {
+      add(now, 'Not recording: ' + (last.reason === 'blocked' ? last.text : REASON_TEXT[last.reason] || last.reason), 'span', 'match-differs')
+    }
+
+    var c = diag.counts
+    var parts = []
+    var steadyCount = (c.recorded || 0) + (c.waiting || 0)
+    if (steadyCount) parts.push('steady ' + pct(steadyCount))
+    if (c.blocked) {
+      var by = Object.keys(diag.blockedBy).filter(function (k) { return diag.blockedBy[k] > 0 })
+        .sort(function (a, b) { return diag.blockedBy[b] - diag.blockedBy[a] })
+        .map(function (k) { return BLOCK_LABEL[k] + ' ' + pct(diag.blockedBy[k]) })
+      parts.push('unsteady ' + pct(c.blocked) + ' (' + by.join(', ') + ')')
+    }
+    if (c.engine) parts.push('engine ' + pct(c.engine))
+    if (c['engine-settling']) parts.push('settling ' + pct(c['engine-settling']))
+    if (c['too-little-data'] || c['stale-data']) parts.push('no data ' + pct((c['too-little-data'] || 0) + (c['stale-data'] || 0)))
+    var mins = Math.max(1, Math.round(diag.seconds / 60))
+    var summary = add(recordStatusEl, 'Last ' + mins + ' min: ' + parts.join(' · '), 'span')
+    var limits = diag.limits
+    var sp = diag.spread
+    if (c.blocked && sp.twaStd.median !== null) {
+      add(summary, ' — typical spread TWA ±' + sp.twaStd.median + '° (limit ' + limits.maxTwaStdDev + '), TWS ±' + sp.twsStd.median + ' kt (limit ' + limits.maxTwsStdDev + '), boat speed ±' + sp.speedStd.median + ' kt (limit ' + limits.maxSpeedStdDev + ')', 'span')
+    }
+  }
+
+  function fetchRecordStatus () {
+    fetch('/plugins/polar-builder/polar/status')
+      .then(function (r) { return r.json() })
+      .then(function (json) { renderRecordStatus(json.diagnostics) })
+      .catch(function () {})
+  }
+  fetchRecordStatus()
+  setInterval(fetchRecordStatus, 5000)
   setInterval(function () {
     if (matrixFetchedAt) {
       var secs = Math.round((Date.now() - matrixFetchedAt) / 1000)

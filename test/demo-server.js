@@ -75,7 +75,8 @@ async function main () {
   function liveValues () {
     tick += 1
     const tws = 11.6 + 0.7 * Math.sin(tick / 7)
-    const twa = 41.5 + 1.2 * Math.sin(tick / 5)
+    // DEMO_NOISY=1: a choppy sea, to show the "why not recording" line
+    const twa = 41.5 + 1.2 * Math.sin(tick / 5) + (process.env.DEMO_NOISY ? (tick % 2 ? 9 : -9) : 0)
     const bsp = 4.35 + 0.08 * Math.sin(tick / 3)
     return {
       'environment.wind.speedTrue': kt(tws),

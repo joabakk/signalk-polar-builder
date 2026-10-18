@@ -78,7 +78,7 @@ All of this is exposed as plugin config in the Signal K admin UI:
 | `maxTwaStdDev` | 4° | Max TWA std-dev (circular) in-window to call it stable |
 | `maxRateOfTurn` | 3°/s | Max turn rate to call it stable |
 | `minTws` / `maxTws` | 2 / 40 kt | Ignore data outside this TWS range |
-| `minBsp` | 0.3 kt | Ignore data below this speed (filters moored/anchored) |
+| `minBsp` | 1 kt | Ignore data below this speed (filters moored/anchored — a boat at a dock easily reads 0.3–0.4 kt from sensor noise and tide, which an earlier 0.3 default recorded as junk) |
 | `samplesPerCell` | 50 | Rolling sample buffer size per cell |
 | `percentile` | 90 | Percentile used for the reported polar speed |
 | `persistIntervalSeconds` | 30 | How often the table is saved to disk |
@@ -123,7 +123,8 @@ Once installed and started, the plugin exposes:
   CSV or `.pol` TWA×TWS matrix (raw text body); delimiter is auto-detected
 - `GET /plugins/polar-builder/polar/status` — current stability state,
   active profile, engine state per instance, and cell count, useful for a
-  debug widget
+  debug widget; `diagnostics` is the last hour of "why did/didn't it
+  record" checks (see [Why isn't it recording?](#why-isnt-it-recording))
 - `GET /plugins/polar-builder/inputs` — every subscribed path with its
   required/active state and current value, backing the webapp's Inputs
   panel
@@ -195,6 +196,25 @@ filled, and a tag matching the sails up right now carries a green dot.
 (`✓ matches the active polar`) or not (in amber, naming the profile that
 *is* tagged for them, if there is one) — the case where recording or
 reported performance would be using the wrong polar.
+
+### Why isn't it recording?
+
+Under the polar status a second line says whether the plugin is recording
+right now and, if not, why — engine running, waiting for a clean window
+after a start-up or engine stop, no wind/speed data, or which stability
+criterion is failing and by how much (e.g. `TWA +/-8.97deg > 4`). Beside it
+is a summary of the last hour: how much of it was steady, how much was
+engine, no data or unsteady, and which criteria did the blocking (they
+overlap, so the percentages can add up to more than the unsteady total), plus
+the typical spread next to its limit. That is the evidence for loosening a
+limit: if TWA alone is blocking 80 % of an otherwise good sail and its
+typical spread is ±6° against a limit of 4°, `maxTwaStdDev` is too tight for
+your sensor and sea state — and one that's only just failing is not. The
+same data is in `GET /plugins/polar-builder/polar/status` under
+`diagnostics` (`counts`, `blockedBy`, `onlyBlockedBy` — seconds where that
+criterion was the *only* one failing, i.e. what relaxing it alone would
+recover — `spread`, `limits` and `last`). The plugin status line in the
+Signal K admin UI names the failing criteria too.
 
 The **Inputs** panel lists every Signal K path this plugin subscribes to —
 boat speed, true wind speed/angle, rate of turn, heading (true/magnetic),
